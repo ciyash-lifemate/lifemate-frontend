@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files (contains EXPO_PUBLIC_API_URL, may point at a dev machine's LAN IP)
+.env
 .env*.local
 
 # typescript
