@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, Alert, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Speech from 'expo-speech';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
 import { Button } from '../../src/components/Button.js';
 import { getNote, createNote, updateNote, deleteNote } from '../../src/api/index.js';
@@ -16,6 +17,7 @@ export default function NoteEditor() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(!isNew);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
     if (isNew) return;
@@ -31,6 +33,24 @@ export default function NoteEditor() {
       }
     })();
   }, [id]);
+
+  // Stop any in-progress speech if the screen is left mid-read.
+  useEffect(() => () => Speech.stop(), []);
+
+  const handleSpeakTitle = () => {
+    if (isSpeaking) {
+      Speech.stop();
+      setIsSpeaking(false);
+      return;
+    }
+    if (!title.trim()) return;
+    setIsSpeaking(true);
+    Speech.speak(title.trim(), {
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -95,13 +115,24 @@ export default function NoteEditor() {
       </View>
 
       <View style={styles.content}>
-        <TextInput
-          style={styles.titleInput}
-          placeholder="Note title"
-          placeholderTextColor={colors.textMuted}
-          value={title}
-          onChangeText={setTitle}
-        />
+        <View style={styles.titleRow}>
+          <TextInput
+            style={[styles.titleInput, styles.titleInputFlex]}
+            placeholder="Note title"
+            placeholderTextColor={colors.textMuted}
+            value={title}
+            onChangeText={setTitle}
+          />
+          {title.trim() ? (
+            <Pressable onPress={handleSpeakTitle} hitSlop={12} style={styles.speakBtn}>
+              <Ionicons
+                name={isSpeaking ? 'volume-high' : 'volume-medium-outline'}
+                size={22}
+                color={isSpeaking ? colors.primary : colors.textSecondary}
+              />
+            </Pressable>
+          ) : null}
+        </View>
         <TextInput
           style={styles.contentInput}
           placeholder="Start writing..."
@@ -135,10 +166,20 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.xl,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
   titleInput: {
     ...typography.h2,
     paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
+  },
+  titleInputFlex: {
+    flex: 1,
+  },
+  speakBtn: {
+    marginLeft: spacing.sm,
   },
   contentInput: {
     ...typography.body,

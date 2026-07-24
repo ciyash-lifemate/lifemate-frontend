@@ -102,6 +102,11 @@ export const registerDeviceToken = (token, platform) =>
 export const unregisterDeviceToken = (token, platform) =>
   unwrap(client.delete('/notifications/device-token', { data: { token, platform } }));
 
+// --- calls ---
+// The call itself is signaled entirely over Socket.IO (call:invite/answer/
+// ice-candidate/reject/end) - this is just the call history log.
+export const listCallHistory = () => unwrap(client.get('/calls'));
+
 // --- AI assistant chat ---
 
 export const listAiMessages = (before) => unwrap(client.get('/ai-chat/messages', { params: { before } }));

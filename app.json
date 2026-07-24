@@ -21,7 +21,9 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.CAMERA",
+        "android.permission.BLUETOOTH"
       ]
     },
     "web": {
@@ -46,12 +48,19 @@
           "photosPermission": "Allow LifeMate AI to access your photos to share images in chat.",
           "cameraPermission": "Allow LifeMate AI to access your camera to share photos in chat."
         }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow LifeMate to access your camera for video calls.",
+          "microphonePermission": "Allow LifeMate to access your microphone for voice and video calls."
+        }
       ]
     ],
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "bedd8b54-aaa0-48d8-9477-0f5afeac2977"
+        "projectId": "eb08ba46-b741-49ee-8698-8647e1f9be2c"
       }
     },
     "owner": "chandra8120"

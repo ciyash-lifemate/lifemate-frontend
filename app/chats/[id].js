@@ -9,6 +9,7 @@ import { Avatar } from '../../src/components/Avatar.js';
 import { listMessages, sendMessage, editMessage, deleteMessage, markChatRead, uploadFile } from '../../src/api/index.js';
 import { socket } from '../../src/api/socket.js';
 import { useAuth } from '../../src/context/AuthContext.js';
+import { useCall } from '../../src/context/CallContext.js';
 import { parseServerDate } from '../../src/utils/date.js';
 import { colors, spacing, typography } from '../../src/theme.js';
 
@@ -28,6 +29,7 @@ export default function ChatConversation() {
   const router = useRouter();
   const { id, name, otherUserId, avatar, online: onlineParam, lastSeen: lastSeenParam } = useLocalSearchParams();
   const { user } = useAuth();
+  const { startCall } = useCall();
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
@@ -283,6 +285,11 @@ export default function ChatConversation() {
     Alert.alert('Message options', undefined, options);
   };
 
+  const handleStartCall = (callType) => {
+    if (!otherUserId) return;
+    startCall(id, otherUserId, name || 'Unknown', avatar || null, callType);
+  };
+
   const isOtherTyping = typingUser != null && String(typingUser) === String(otherUserId);
   const subtitle = isOtherTyping ? 'typing…' : isOnline ? 'Online' : lastSeenLabel(lastSeenAt);
 
@@ -304,8 +311,12 @@ export default function ChatConversation() {
           </View>
         </View>
         <View style={styles.headerIcons}>
-          <Ionicons name="call-outline" size={20} color={colors.text} style={styles.headerIcon} />
-          <Ionicons name="videocam-outline" size={22} color={colors.text} />
+          <Pressable onPress={() => handleStartCall('audio')} hitSlop={10} style={styles.headerIcon}>
+            <Ionicons name="call-outline" size={20} color={colors.text} />
+          </Pressable>
+          <Pressable onPress={() => handleStartCall('video')} hitSlop={10}>
+            <Ionicons name="videocam-outline" size={22} color={colors.text} />
+          </Pressable>
         </View>
       </View>
 
