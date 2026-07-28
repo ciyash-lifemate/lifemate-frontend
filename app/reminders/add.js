@@ -1,5 +1,5 @@
 import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
@@ -12,18 +12,24 @@ const TYPES = [
   { key: 'anniversary', title: 'Anniversary', subtitle: 'Special Anniversaries' },
   { key: 'note', title: 'Note', subtitle: 'Notes & Ideas' },
   { key: 'task', title: 'Task', subtitle: 'Tasks & To-Do' },
-  { key: 'custom', title: 'Custom', subtitle: 'Custom Reminder' },
+  { key: 'alarm', title: 'Alarm', subtitle: 'Wake-up & Time Alerts' },
+  { key: 'event', title: 'Event / Meeting', subtitle: 'Meetings & Events' },
+  { key: 'recharge', title: 'Recharge', subtitle: 'Mobile & DTH Recharge' },
+  { key: 'custom', title: 'Others', subtitle: 'Anything Else' },
 ];
 
 export default function AddReminder() {
   const router = useRouter();
+  // Set when opened from Calendar's "+" on a selected day, so the type-
+  // specific form below opens pre-filled with that date instead of today.
+  const { date } = useLocalSearchParams();
 
   const handleSelect = (key) => {
     if (key === 'note') {
       router.push('/notes/new');
       return;
     }
-    router.push(`/reminders/${key}`);
+    router.push({ pathname: `/reminders/${key}`, params: date ? { date } : {} });
   };
 
   return (

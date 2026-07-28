@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Alert, StyleSheet } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../theme.js';
@@ -12,11 +12,24 @@ const formatTime = (value) => {
   return Number.isNaN(d.getTime()) ? value : formatClockTime(d);
 };
 
-export const ReminderRow = ({ reminder, onToggle, onPress, onDelete }) => {
+// `onPress` opens a read-only detail card (ReminderDetailModal) rather than
+// jumping straight into editing - `onEdit`/`onDelete` back a single "..."
+// icon instead of separate buttons, so the row doesn't get cluttered with
+// icons for every possible action.
+export const ReminderRow = ({ reminder, onToggle, onPress, onEdit, onDelete }) => {
   const type = reminderTypeStyles[reminder.type] || reminderTypeStyles.custom;
   const title = reminder.title || 'Reminder';
   const isCompleted = !!reminder.is_completed;
   const subtitle = reminder.reminder_time ? formatTime(reminder.reminder_time) : reminder.reminder_date;
+  const hasOptions = !!(onEdit || onDelete);
+
+  const handleOptions = () => {
+    const buttons = [];
+    if (onEdit) buttons.push({ text: 'Edit', onPress: () => onEdit(reminder) });
+    if (onDelete) buttons.push({ text: 'Delete', style: 'destructive', onPress: () => onDelete(reminder) });
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert(title, 'What would you like to do?', buttons);
+  };
 
   return (
     <Pressable style={styles.row} onPress={onPress && (() => onPress(reminder))}>
@@ -28,17 +41,17 @@ export const ReminderRow = ({ reminder, onToggle, onPress, onDelete }) => {
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       {onToggle ? (
-        <Pressable hitSlop={10} onPress={() => onToggle(reminder)} style={onDelete && styles.actionSpacing}>
+        <Pressable hitSlop={10} onPress={() => onToggle(reminder)} style={hasOptions && styles.actionSpacing}>
           <Ionicons
             name={isCompleted ? 'checkmark-circle' : 'ellipse-outline'}
             size={24}
-            color={isCompleted ? colors.success : colors.textMuted}
+            color={isCompleted ? colors.success : colors.danger}
           />
         </Pressable>
       ) : null}
-      {onDelete ? (
-        <Pressable hitSlop={10} onPress={() => onDelete(reminder)}>
-          <Ionicons name="trash-outline" size={20} color={colors.danger} />
+      {hasOptions ? (
+        <Pressable hitSlop={10} onPress={handleOptions}>
+          <Ionicons name="ellipsis-vertical" size={18} color={colors.textSecondary} />
         </Pressable>
       ) : null}
     </Pressable>
@@ -53,6 +66,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   iconWrap: {
     width: 40,

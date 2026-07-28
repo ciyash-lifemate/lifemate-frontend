@@ -1,27 +1,62 @@
-import { useCallback, useState } from 'react';
-import { View, Text, FlatList, Pressable, Alert, StyleSheet } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { View, Text, FlatList, Pressable, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { ReminderRow } from '../src/components/ReminderRow.js';
-import { listReminders, completeReminder, deleteReminder } from '../src/api/index.js';
+import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
+import { listReminders, completeReminder, deleteReminder, getErrorMessage } from '../src/api/index.js';
 import { colors, spacing, typography } from '../src/theme.js';
+
+const PAGE_SIZE = 30;
 
 export default function ReminderHistory() {
   const router = useRouter();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  // An id, not the reminder object itself, so toggling "done" from inside
+  // the modal re-derives the live row below instead of showing a stale snapshot.
+  const [selectedReminderId, setSelectedReminderId] = useState(null);
+  const selectedReminder = reminders.find((r) => r.id === selectedReminderId) || null;
+  const pageRef = useRef(1);
 
   const load = useCallback(async () => {
+    pageRef.current = 1;
+    setLoading(true);
     try {
-      const data = await listReminders();
-      setReminders(Array.isArray(data) ? data : []);
+      const data = await listReminders({ page: 1, pageSize: PAGE_SIZE });
+      const items = Array.isArray(data) ? data : data?.items || [];
+      setReminders(items);
+      setHasMore(Array.isArray(data) ? false : items.length < (data?.total ?? items.length));
     } catch {
       setReminders([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const data = await listReminders({ page: nextPage, pageSize: PAGE_SIZE });
+      const items = Array.isArray(data) ? data : data?.items || [];
+      if (items.length) {
+        pageRef.current = nextPage;
+        setReminders((prev) => [...prev, ...items]);
+      }
+      const total = Array.isArray(data) ? null : data?.total;
+      setHasMore(total != null ? pageRef.current * PAGE_SIZE < total : items.length === PAGE_SIZE);
+    } catch {
+      // Leave hasMore as-is - a transient failure shouldn't stop future scroll attempts.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore]);
 
   useFocusEffect(
     useCallback(() => {
@@ -39,7 +74,10 @@ export default function ReminderHistory() {
     }
   };
 
-  const openReminder = (reminder) => {
+  const openReminder = (reminder) => setSelectedReminderId(reminder.id);
+
+  const handleEdit = (reminder) => {
+    setSelectedReminderId(null);
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
   };
 
@@ -50,13 +88,14 @@ export default function ReminderHistory() {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
+          setSelectedReminderId(null);
           const previous = reminders;
           setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
           try {
             await deleteReminder(reminder.id);
           } catch (err) {
             setReminders(previous);
-            Alert.alert('Could not delete reminder', err.response?.data?.message || 'Please try again.');
+            Alert.alert('Could not delete reminder', getErrorMessage(err));
           }
         },
       },
@@ -78,9 +117,26 @@ export default function ReminderHistory() {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <ReminderRow reminder={item} onToggle={handleToggle} onPress={openReminder} onDelete={handleDelete} />
+          <ReminderRow
+            reminder={item}
+            onToggle={handleToggle}
+            onPress={openReminder}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
         )}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No reminders yet.</Text> : null}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
+      />
+      <ReminderDetailModal
+        visible={!!selectedReminder}
+        reminder={selectedReminder}
+        onClose={() => setSelectedReminderId(null)}
+        onToggle={handleToggle}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
       />
     </ScreenContainer>
   );
@@ -104,6 +160,9 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  footerLoader: {
+    marginVertical: spacing.md,
   },
   emptyText: {
     ...typography.bodyMuted,

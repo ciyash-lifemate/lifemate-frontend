@@ -27,6 +27,13 @@ export const getToken = () => SecureStore.getItemAsync(TOKEN_KEY);
 
 const unwrap = (promise) => promise.then((res) => res.data.data);
 
+// Backend validation errors carry a message in the response body; anything
+// that never reached the backend (network failure, timeout, DNS) only has
+// axios's own err.message (e.g. "Network Error") - fall back to that instead
+// of a generic string so the alert reflects what actually went wrong.
+export const getErrorMessage = (err, fallback = 'Please try again.') =>
+  err?.response?.data?.message || err?.message || fallback;
+
 // --- auth ---
 
 export const sendOtp = (mobile) => unwrap(client.post('/auth/otp/send', { mobile }));
@@ -55,7 +62,8 @@ export const deleteReminder = (id) => unwrap(client.delete(`/reminders/${id}`));
 
 // --- notes ---
 
-export const listNotes = (search) => unwrap(client.get('/notes', { params: { search } }));
+export const listNotes = (search, page, pageSize) =>
+  unwrap(client.get('/notes', { params: { search, page, pageSize } }));
 export const getNote = (id) => unwrap(client.get(`/notes/${id}`));
 export const createNote = (payload) => unwrap(client.post('/notes', payload));
 export const updateNote = (id, payload) => unwrap(client.put(`/notes/${id}`, payload));
@@ -63,49 +71,16 @@ export const deleteNote = (id) => unwrap(client.delete(`/notes/${id}`));
 
 // --- notifications ---
 
-export const listNotifications = (type) => unwrap(client.get('/notifications', { params: { type } }));
+export const listNotifications = (type, page, pageSize) =>
+  unwrap(client.get('/notifications', { params: { type, page, pageSize } }));
 export const getUnreadNotificationCount = () => unwrap(client.get('/notifications/unread-count'));
 export const markNotificationRead = (id) => unwrap(client.patch(`/notifications/${id}/read`));
 export const markAllNotificationsRead = () => unwrap(client.patch('/notifications/read-all'));
-
-// --- chats ---
-
-export const listChats = () => unwrap(client.get('/chats'));
-export const startChat = (userId) => unwrap(client.post('/chats', { userId }));
-export const listMessages = (chatId, before) =>
-  unwrap(client.get(`/chats/${chatId}/messages`, { params: { before, limit: 50 } }));
-// payload carries messageType/media fields for media sends, not just plain text -
-// see MESSAGE_TYPES in src/utils/chat.js for the accepted messageType values.
-export const sendMessage = (chatId, payload) => unwrap(client.post(`/chats/${chatId}/messages`, payload));
-export const editMessage = (chatId, messageId, content) =>
-  unwrap(client.patch(`/chats/${chatId}/messages/${messageId}`, { content }));
-export const deleteMessage = (chatId, messageId) =>
-  unwrap(client.delete(`/chats/${chatId}/messages/${messageId}`));
-export const markChatRead = (chatId) => unwrap(client.patch(`/chats/${chatId}/read`));
-export const pinChat = (chatId, isPinned) => unwrap(client.patch(`/chats/${chatId}/pin`, { isPinned }));
-
-// Upload BEFORE sending an image/video/audio/document message - the returned
-// `url` becomes the message's mediaUrl. Never send raw file bytes over the socket.
-export const uploadFile = (file) => {
-  const form = new FormData();
-  form.append('file', { uri: file.uri, name: file.name || 'upload', type: file.mime || 'application/octet-stream' });
-  return unwrap(
-    client.post('/uploads', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000, // uploads can be up to 50MB, well beyond the client's default 15s
-    })
-  );
-};
 
 export const registerDeviceToken = (token, platform) =>
   unwrap(client.post('/notifications/device-token', { token, platform }));
 export const unregisterDeviceToken = (token, platform) =>
   unwrap(client.delete('/notifications/device-token', { data: { token, platform } }));
-
-// --- calls ---
-// The call itself is signaled entirely over Socket.IO (call:invite/answer/
-// ice-candidate/reject/end) - this is just the call history log.
-export const listCallHistory = () => unwrap(client.get('/calls'));
 
 // --- AI assistant chat ---
 
@@ -116,6 +91,11 @@ export const sendAiMessage = (content) => unwrap(client.post('/ai-chat/messages'
 
 export const getSettings = () => unwrap(client.get('/settings'));
 export const updateSettings = (payload) => unwrap(client.put('/settings', payload));
+
+// --- business card ---
+
+export const getBusinessCard = () => unwrap(client.get('/business-card'));
+export const updateBusinessCard = (payload) => unwrap(client.put('/business-card', payload));
 
 // --- banners ---
 

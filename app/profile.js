@@ -8,20 +8,26 @@ import { useAuth } from '../src/context/AuthContext.js';
 import { colors, radius, spacing, typography } from '../src/theme.js';
 
 const MENU_SECTIONS = [
-  [
-    { key: 'edit-profile', label: 'Edit Profile', icon: 'person-outline' },
-    { key: 'reminder-history', label: 'Reminder History', icon: 'time-outline' },
-  ],
-  [
-    { key: 'ai-settings', label: 'AI Settings', icon: 'sparkles-outline' },
-    { key: 'notification-settings', label: 'Notification Settings', icon: 'notifications-outline' },
-    { key: 'chat-settings', label: 'Chat Settings', icon: 'chatbubble-ellipses-outline' },
-  ],
-  [
-    { key: 'privacy', label: 'Privacy & Security', icon: 'shield-checkmark-outline' },
-    { key: 'backup', label: 'Backup & Restore', icon: 'cloud-upload-outline' },
-    { key: 'help', label: 'Help & Support', icon: 'help-circle-outline' },
-  ],
+  {
+    items: [
+      { key: 'edit-profile', label: 'Edit Profile', icon: 'person-outline' },
+      { key: 'business-card', label: 'Business Card', icon: 'card-outline' },
+      { key: 'reminder-history', label: 'Reminder History', icon: 'time-outline' },
+    ],
+  },
+  {
+    items: [
+      { key: 'ai-settings', label: 'AI Settings', icon: 'sparkles-outline' },
+      { key: 'notification-settings', label: 'Notification Settings', icon: 'notifications-outline' },
+    ],
+  },
+  {
+    items: [
+      { key: 'privacy', label: 'Privacy & Security', icon: 'shield-checkmark-outline' },
+      { key: 'backup', label: 'Backup & Restore', icon: 'cloud-upload-outline' },
+      { key: 'help', label: 'Help & Support', icon: 'help-circle-outline' },
+    ],
+  },
 ];
 
 export default function Profile() {
@@ -31,6 +37,10 @@ export default function Profile() {
   const handlePress = (key) => {
     if (key === 'edit-profile') {
       router.push('/edit-profile');
+      return;
+    }
+    if (key === 'business-card') {
+      router.push('/business-card');
       return;
     }
     if (key === 'reminder-history') {
@@ -73,20 +83,23 @@ export default function Profile() {
 
       <ScrollView contentContainerStyle={styles.content}>
         {MENU_SECTIONS.map((section, i) => (
-          <View key={i} style={styles.section}>
-            {section.map((item, itemIndex) => (
-              <Pressable
-                key={item.key}
-                style={[styles.row, itemIndex === section.length - 1 && styles.rowLast]}
-                onPress={() => handlePress(item.key)}
-              >
-                <View style={styles.rowIconWrap}>
-                  <Ionicons name={item.icon} size={20} color={colors.primary} />
-                </View>
-                <Text style={styles.rowLabel}>{item.label}</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
-            ))}
+          <View key={i}>
+            {section.title ? <Text style={styles.sectionTitle}>{section.title}</Text> : null}
+            <View style={styles.section}>
+              {section.items.map((item, itemIndex) => (
+                <Pressable
+                  key={item.key}
+                  style={[styles.row, itemIndex === section.items.length - 1 && styles.rowLast]}
+                  onPress={() => handlePress(item.key)}
+                >
+                  <View style={[styles.rowIconWrap, item.iconBg && { backgroundColor: item.iconBg }]}>
+                    <Ionicons name={item.icon} size={20} color={item.iconColor || colors.primary} />
+                  </View>
+                  <Text style={styles.rowLabel}>{item.label}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </Pressable>
+              ))}
+            </View>
           </View>
         ))}
 
@@ -139,6 +152,14 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  sectionTitle: {
+    ...typography.caption,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
   },
   section: {
     backgroundColor: colors.card,

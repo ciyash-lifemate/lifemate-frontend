@@ -58,4 +58,7 @@ export const reminderTypeStyles = {
   note: { color: colors.warning, bg: '#FDF3E1', icon: 'note-text' },
   task: { color: colors.success, bg: '#E7F8ED', icon: 'checkbox-marked-circle-outline' },
   custom: { color: colors.primary, bg: colors.primaryLight, icon: 'clock-outline' },
+  recharge: { color: '#0EA5E9', bg: '#E0F2FE', icon: 'sim' },
+  event: { color: '#7C3AED', bg: '#EFE9FE', icon: 'calendar-account-outline' },
+  alarm: { color: '#DC2626', bg: '#FDE9E9', icon: 'alarm' },
 };

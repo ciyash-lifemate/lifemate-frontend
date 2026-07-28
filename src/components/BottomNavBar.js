@@ -7,10 +7,11 @@ import { colors, radius } from '../theme.js';
 const TABS = [
   { key: 'home', path: '/home', icon: 'home-outline', iconActive: 'home' },
   { key: 'ai', path: '/ai-chat', icon: 'robot-outline', iconActive: 'robot' },
-  { key: 'add', path: '/reminders/add', icon: 'plus', isFab: true },
+  { key: 'notes', path: '/notes', icon: 'note-text-outline', iconActive: 'note-text' },
   { key: 'calendar', path: '/calendar', icon: 'calendar-blank-outline', iconActive: 'calendar' },
-  { key: 'chats', path: '/chats', icon: 'chat-outline', iconActive: 'chat' },
 ];
+
+const FAB = { key: 'add', path: '/reminders/add', icon: 'plus' };
 
 export const BottomNavBar = () => {
   const router = useRouter();
@@ -22,14 +23,6 @@ export const BottomNavBar = () => {
       {TABS.map((tab) => {
         const isActive = pathname === tab.path || pathname.startsWith(`${tab.path}/`);
 
-        if (tab.isFab) {
-          return (
-            <Pressable key={tab.key} style={styles.fab} onPress={() => router.push(tab.path)}>
-              <MaterialCommunityIcons name={tab.icon} size={28} color={colors.white} />
-            </Pressable>
-          );
-        }
-
         return (
           <Pressable key={tab.key} style={styles.tab} onPress={() => router.push(tab.path)}>
             <MaterialCommunityIcons
@@ -40,9 +33,15 @@ export const BottomNavBar = () => {
           </Pressable>
         );
       })}
+
+      <Pressable style={styles.fab} onPress={() => router.push(FAB.path)}>
+        <MaterialCommunityIcons name={FAB.icon} size={28} color={colors.white} />
+      </Pressable>
     </View>
   );
 };
+
+const FAB_SIZE = 52;
 
 const styles = StyleSheet.create({
   bar: {
@@ -53,19 +52,22 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingTop: 10,
+    position: 'relative',
   },
   tab: {
     flex: 1,
     alignItems: 'center',
   },
   fab: {
-    width: 52,
-    height: 52,
+    position: 'absolute',
+    right: 16,
+    top: -FAB_SIZE - 12,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
     borderRadius: radius.pill,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -28,
     shadowColor: colors.primary,
     shadowOpacity: 0.35,
     shadowRadius: 8,

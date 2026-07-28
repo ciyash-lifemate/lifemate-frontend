@@ -9,7 +9,7 @@ import { DateField } from '../src/components/DateField.js';
 import { SelectField } from '../src/components/SelectField.js';
 import { Button } from '../src/components/Button.js';
 import { Avatar } from '../src/components/Avatar.js';
-import { updateMe } from '../src/api/index.js';
+import { updateMe, getErrorMessage } from '../src/api/index.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { colors, spacing, typography } from '../src/theme.js';
 import { LANGUAGES } from '../src/constants/profile.js';
@@ -41,7 +41,7 @@ export default function EditProfile() {
       setUser(updated);
       router.back();
     } catch (err) {
-      Alert.alert('Could not save profile', err.response?.data?.message || 'Please try again.');
+      Alert.alert('Could not save profile', getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -58,7 +58,7 @@ export default function EditProfile() {
           </View>
         </View>
 
-        <TextField label="Full Name" placeholder="Ravi Kumar" value={name} onChangeText={setName} />
+        <TextField label="Full Name" placeholder="Ravi Kumar" value={name} onChangeText={setName} voiceInput />
         <TextField
           label="Email (optional)"
           placeholder="ravi@gmail.com"

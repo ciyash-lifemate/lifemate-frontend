@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { View, Text, ScrollView, Pressable, RefreshControl, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, RefreshControl, Alert, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -7,15 +7,25 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { BottomNavBar } from '../src/components/BottomNavBar.js';
 import { ReminderRow } from '../src/components/ReminderRow.js';
-import { listTodayReminders, completeReminder, getUnreadNotificationCount } from '../src/api/index.js';
+import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
+import { Avatar } from '../src/components/Avatar.js';
+import {
+  listTodayReminders,
+  completeReminder,
+  deleteReminder,
+  getUnreadNotificationCount,
+  getErrorMessage,
+} from '../src/api/index.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
 
 const QUICK_ADD = [
   { key: 'medicine', label: 'Medicine', path: '/reminders/medicine' },
   { key: 'birthday', label: 'Birthday', path: '/reminders/birthday' },
-  { key: 'note', label: 'Note', path: '/notes/new' },
-  { key: 'custom', label: 'Custom', path: '/reminders/custom' },
+  { key: 'note', label: 'Note', path: '/notes' },
+  { key: 'event', label: 'Event/Meeting', path: '/reminders/event' },
+  { key: 'alarm', label: 'Alarm', path: '/reminders/alarm' },
+  { key: 'custom', label: 'Others', path: '/reminders/custom' },
 ];
 
 const greeting = () => {
@@ -32,6 +42,10 @@ export default function Home() {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // An id, not the reminder object itself, so toggling "done" from inside
+  // the modal re-derives the live row below instead of showing a stale snapshot.
+  const [selectedReminderId, setSelectedReminderId] = useState(null);
+  const selectedReminder = reminders.find((r) => r.id === selectedReminderId) || null;
 
   const load = useCallback(async () => {
     try {
@@ -68,8 +82,35 @@ export default function Home() {
     }
   };
 
-  const openReminder = (reminder) => {
+  const completedCount = reminders.filter((r) => r.is_completed).length;
+  const pendingCount = reminders.length - completedCount;
+
+  const openReminder = (reminder) => setSelectedReminderId(reminder.id);
+
+  const handleEdit = (reminder) => {
+    setSelectedReminderId(null);
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
+  };
+
+  const handleDelete = (reminder) => {
+    Alert.alert('Delete reminder', `Delete "${reminder.title}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          setSelectedReminderId(null);
+          const previous = reminders;
+          setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
+          try {
+            await deleteReminder(reminder.id);
+          } catch (err) {
+            setReminders(previous);
+            Alert.alert('Could not delete reminder', getErrorMessage(err));
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -79,9 +120,12 @@ export default function Home() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       >
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.push('/profile')}>
-            <Text style={styles.greeting}>{greeting()},</Text>
-            <Text style={styles.name}>{user?.name?.split(' ')[0] || 'there'} 👋</Text>
+          <Pressable style={styles.identity} onPress={() => router.push('/profile')}>
+            <Avatar name={user?.name} uri={user?.avatar_url} size={44} />
+            <View style={styles.identityText}>
+              <Text style={styles.greeting}>{greeting()}</Text>
+              <Text style={styles.name}>{user?.name?.split(' ')[0] || 'there'} 👋</Text>
+            </View>
           </Pressable>
           <Pressable style={styles.bell} onPress={() => router.push('/notifications')} hitSlop={10}>
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
@@ -89,7 +133,7 @@ export default function Home() {
           </Pressable>
         </View>
 
-        <Pressable onPress={() => router.push('/ai-chat')}>
+        <Pressable onPress={() => router.push('/ai-chat')} style={styles.aiCardWrap}>
           <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.aiCard}>
             <View style={styles.aiIconWrap}>
               <MaterialCommunityIcons name="robot-happy-outline" size={26} color={colors.white} />
@@ -102,12 +146,23 @@ export default function Home() {
                   : 'You are all caught up today.'}{'\n'}Stay productive 💪
               </Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
           </LinearGradient>
         </Pressable>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Today's Reminders</Text>
-          <Pressable onPress={() => router.push('/calendar')}>
+          <View>
+            <Text style={styles.sectionTitle}>Today's Reminders</Text>
+            {reminders.length > 0 ? (
+              <View style={styles.statusRow}>
+                <View style={styles.statusDot} />
+                <Text style={styles.statusText}>{completedCount} done</Text>
+                <View style={[styles.statusDot, styles.statusDotPending]} />
+                <Text style={styles.statusText}>{pendingCount} pending</Text>
+              </View>
+            ) : null}
+          </View>
+          <Pressable onPress={() => router.push('/calendar')} hitSlop={6}>
             <Text style={styles.viewAll}>View all</Text>
           </Pressable>
         </View>
@@ -118,7 +173,14 @@ export default function Home() {
           <Text style={styles.emptyText}>No reminders for today yet.</Text>
         ) : (
           reminders.map((reminder) => (
-            <ReminderRow key={reminder.id} reminder={reminder} onToggle={handleToggle} onPress={openReminder} />
+            <ReminderRow
+              key={reminder.id}
+              reminder={reminder}
+              onToggle={handleToggle}
+              onPress={openReminder}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
           ))
         )}
 
@@ -138,6 +200,14 @@ export default function Home() {
         </View>
       </ScrollView>
       <BottomNavBar />
+      <ReminderDetailModal
+        visible={!!selectedReminder}
+        reminder={selectedReminder}
+        onClose={() => setSelectedReminderId(null)}
+        onToggle={handleToggle}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+      />
     </ScreenContainer>
   );
 }
@@ -153,9 +223,17 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.lg,
+  },
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  identityText: {
+    marginLeft: spacing.sm,
   },
   greeting: {
     ...typography.bodyMuted,
@@ -164,28 +242,43 @@ const styles = StyleSheet.create({
     ...typography.h2,
   },
   bell: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: radius.pill,
     backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   badge: {
     position: 'absolute',
-    top: 8,
-    right: 9,
+    top: 9,
+    right: 10,
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.danger,
+    borderWidth: 1.5,
+    borderColor: colors.card,
+  },
+  aiCardWrap: {
+    marginBottom: spacing.lg,
+    borderRadius: radius.lg,
+    shadowColor: colors.gradientEnd,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   aiCard: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radius.lg,
     padding: spacing.md,
-    marginBottom: spacing.lg,
   },
   aiIconWrap: {
     width: 48,
@@ -211,12 +304,31 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
   sectionTitle: {
     ...typography.h3,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: colors.success,
+    marginRight: 5,
+  },
+  statusDotPending: {
+    backgroundColor: colors.danger,
+    marginLeft: spacing.sm,
+  },
+  statusText: {
+    ...typography.caption,
   },
   viewAll: {
     ...typography.bodyMuted,
@@ -232,11 +344,12 @@ const styles = StyleSheet.create({
   },
   quickAddRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: spacing.md,
   },
   quickAddItem: {
     alignItems: 'center',
-    width: '23%',
+    width: '33.33%',
   },
   quickAddIcon: {
     width: 52,
@@ -245,6 +358,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   quickAddLabel: {
     ...typography.caption,

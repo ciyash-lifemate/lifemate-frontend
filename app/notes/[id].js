@@ -5,7 +5,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Speech from 'expo-speech';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
 import { Button } from '../../src/components/Button.js';
-import { getNote, createNote, updateNote, deleteNote } from '../../src/api/index.js';
+import { VoiceMicButton } from '../../src/components/VoiceMicButton.js';
+import { getNote, createNote, updateNote, deleteNote, getErrorMessage } from '../../src/api/index.js';
 import { colors, spacing, typography } from '../../src/theme.js';
 
 export default function NoteEditor() {
@@ -66,7 +67,7 @@ export default function NoteEditor() {
       }
       router.back();
     } catch (err) {
-      Alert.alert('Could not save note', err.response?.data?.message || 'Please try again.');
+      Alert.alert('Could not save note', getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export default function NoteEditor() {
             await deleteNote(id);
             router.back();
           } catch (err) {
-            Alert.alert('Could not delete note', err.response?.data?.message || 'Please try again.');
+            Alert.alert('Could not delete note', getErrorMessage(err));
           }
         },
       },
@@ -132,16 +133,20 @@ export default function NoteEditor() {
               />
             </Pressable>
           ) : null}
+          <VoiceMicButton value={title} onChangeText={setTitle} style={styles.speakBtn} />
         </View>
-        <TextInput
-          style={styles.contentInput}
-          placeholder="Start writing..."
-          placeholderTextColor={colors.textMuted}
-          value={content}
-          onChangeText={setContent}
-          multiline
-          textAlignVertical="top"
-        />
+        <View style={styles.contentWrap}>
+          <TextInput
+            style={styles.contentInput}
+            placeholder="Start writing..."
+            placeholderTextColor={colors.textMuted}
+            value={content}
+            onChangeText={setContent}
+            multiline
+            textAlignVertical="top"
+          />
+          <VoiceMicButton value={content} onChangeText={setContent} style={styles.contentMicBtn} />
+        </View>
       </View>
 
       <View style={styles.footer}>
@@ -181,10 +186,19 @@ const styles = StyleSheet.create({
   speakBtn: {
     marginLeft: spacing.sm,
   },
+  contentWrap: {
+    flex: 1,
+  },
   contentInput: {
     ...typography.body,
     flex: 1,
     lineHeight: 22,
+    paddingRight: spacing.xl,
+  },
+  contentMicBtn: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
   },
   footer: {
     paddingHorizontal: spacing.xl,

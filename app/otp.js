@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { Header } from '../src/components/Header.js';
 import { Button } from '../src/components/Button.js';
-import { verifyOtp, sendOtp } from '../src/api/index.js';
+import { verifyOtp, sendOtp, getErrorMessage } from '../src/api/index.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { colors, spacing, typography, radius } from '../src/theme.js';
 
@@ -70,7 +70,7 @@ export default function Otp() {
       router.replace(user.is_profile_complete ? '/home' : '/create-profile');
     } catch (err) {
       console.error('[verifyOtp] failed', err.message, err.response?.data, err.toJSON?.());
-      Alert.alert('Verification failed', err.response?.data?.message || 'Please try again.');
+      Alert.alert('Verification failed', getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -91,7 +91,7 @@ export default function Otp() {
       );
     } catch (err) {
       console.error('[sendOtp] resend failed', err.message, err.response?.data, err.toJSON?.());
-      Alert.alert('Could not resend OTP', err.response?.data?.message || 'Please try again.');
+      Alert.alert('Could not resend OTP', getErrorMessage(err));
     }
   };
 

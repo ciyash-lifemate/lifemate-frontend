@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { TextField } from '../src/components/TextField.js';
 import { Button } from '../src/components/Button.js';
-import { sendOtp } from '../src/api/index.js';
+import { sendOtp, getErrorMessage } from '../src/api/index.js';
 import { colors, spacing, typography } from '../src/theme.js';
 
 export default function Login() {
@@ -32,7 +32,7 @@ export default function Login() {
       });
     } catch (err) {
       console.error('[sendOtp] failed', err.message, err.response?.data, err.toJSON?.());
-      Alert.alert('Could not send OTP', err.response?.data?.message || 'Please try again.');
+      Alert.alert('Could not send OTP', getErrorMessage(err));
     } finally {
       setLoading(false);
     }

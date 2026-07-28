@@ -1,7 +1,13 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
-const CHANNEL_ID = 'default';
+// Android notification channels are immutable once created - if this app's
+// channel was ever created before `sound` was set here (an earlier test
+// build, or Android auto-creating it on first notification), later changes
+// to its sound/importance are silently ignored. Bumping the id forces
+// Android to create a fresh channel with the current config instead of
+// reusing whatever "default" already locked in on-device.
+const CHANNEL_ID = 'reminders-v2';
 
 // Since SDK 53, expo-notifications throws the moment it's *imported* when
 // running inside Expo Go on Android (a side-effect file it re-exports
@@ -58,7 +64,7 @@ export const setupNotifications = async () => {
 };
 
 // The device's Expo push token, for registering with the backend so it can
-// send reminder/chat push notifications. Returns null wherever push isn't
+// send reminder push notifications. Returns null wherever push isn't
 // available (Expo Go on Android, no permission, no EAS project id
 // configured, etc.) - callers already treat a falsy result as "skip it".
 export const getExpoPushToken = async () => {
@@ -68,16 +74,31 @@ export const getExpoPushToken = async () => {
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     const { data } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
     return data;
-  } catch {
+  } catch (e) {
+    if (__DEV__) console.warn('[push] getExpoPushTokenAsync failed:', e?.message);
     return null;
   }
 };
 
+// Fires the moment a push arrives while the app is in the foreground (before
+// the user taps it, if ever) - used to speak the reminder's title out loud
+// alongside the notification's own sound. Background/killed-app pushes can't
+// trigger this (or any JS) at all, so voice announcement is foreground-only,
+// same limitation as the sound fallback in ReminderAlertWatcher.
+export const subscribeToNotificationReceived = (handler) => {
+  const Notifications = getNotifications();
+  if (!Notifications) return () => {};
+  const subscription = Notifications.addNotificationReceivedListener((notification) => {
+    handler(notification.request.content.data);
+  });
+  return () => subscription.remove();
+};
+
 // Fires when the user taps a notification (foreground, background, or from
 // a killed app's tray). `handler` receives the push payload's `data` object,
-// e.g. { type: 'reminder', reminderId, reminderType } or { type: 'chat', chatId }
-// - reminder due-alerts are sent by the backend's scheduler now, not scheduled
-// on-device, so this is purely about deep-linking a tap to the right screen.
+// e.g. { type: 'reminder', reminderId, reminderType } - reminder due-alerts
+// are sent by the backend's scheduler now, not scheduled on-device, so this
+// is purely about deep-linking a tap to the right screen.
 // Returns an unsubscribe function; a no-op where notifications aren't supported.
 export const subscribeToNotificationTaps = (handler) => {
   const Notifications = getNotifications();

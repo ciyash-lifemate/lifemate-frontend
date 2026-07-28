@@ -5,3 +5,4 @@ export const LANGUAGES = [
   { value: 'Telugu', label: 'Telugu' },
   { value: 'Tamil', label: 'Tamil' },
 ];
+                             

@@ -18,12 +18,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.CAMERA",
-        "android.permission.BLUETOOTH"
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -35,25 +30,14 @@
       "expo-secure-store",
       "@react-native-community/datetimepicker",
       "expo-notifications",
+      "expo-audio",
+      "expo-sharing",
       [
-        "expo-audio",
+        "expo-speech-recognition",
         {
-          "microphonePermission": "Allow LifeMate AI to access your microphone to record voice messages."
-        }
-      ],
-      "expo-video",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow LifeMate AI to access your photos to share images in chat.",
-          "cameraPermission": "Allow LifeMate AI to access your camera to share photos in chat."
-        }
-      ],
-      [
-        "@config-plugins/react-native-webrtc",
-        {
-          "cameraPermission": "Allow LifeMate to access your camera for video calls.",
-          "microphonePermission": "Allow LifeMate to access your microphone for voice and video calls."
+          "microphonePermission": "Allow LifeMate to use the microphone to fill forms by voice.",
+          "speechRecognitionPermission": "Allow LifeMate to use speech recognition to fill forms by voice.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
       ]
     ],

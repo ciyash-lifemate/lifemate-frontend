@@ -9,7 +9,6 @@ import { colors, radius, spacing, typography } from '../src/theme.js';
 const ROWS = [
   { key: 'push_notifications', payloadKey: 'pushNotifications', label: 'Push Notifications', description: 'Get alerts on this device' },
   { key: 'reminder_notifications', payloadKey: 'reminderNotifications', label: 'Reminder Notifications', description: 'Medicine, birthdays, tasks & more' },
-  { key: 'chat_notifications', payloadKey: 'chatNotifications', label: 'Chat Notifications', description: 'New messages from people and LifeMate AI' },
 ];
 
 export default function NotificationSettings() {

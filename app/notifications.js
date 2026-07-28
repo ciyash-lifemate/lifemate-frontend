@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { View, Text, SectionList, Pressable, StyleSheet } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -11,11 +11,9 @@ import { colors, radius, spacing, typography } from '../src/theme.js';
 const TABS = [
   { key: 'all', label: 'All' },
   { key: 'reminder', label: 'Reminders' },
-  { key: 'chat', label: 'Chats' },
 ];
 
 const iconFor = (type) => {
-  if (type === 'chat') return { lib: 'ionicons', name: 'chatbubble-ellipses-outline' };
   if (type === 'reminder') return { lib: 'mci', name: 'bell-outline' };
   return { lib: 'mci', name: 'information-outline' };
 };
@@ -36,22 +34,51 @@ const groupLabel = (value) => {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
 };
 
+const PAGE_SIZE = 30;
+
 export default function Notifications() {
   const router = useRouter();
   const [tab, setTab] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const pageRef = useRef(1);
 
   const load = useCallback(async (activeTab) => {
+    pageRef.current = 1;
     try {
-      const data = await listNotifications(activeTab === 'all' ? undefined : activeTab);
-      setItems(Array.isArray(data) ? data : data?.items || []);
+      const data = await listNotifications(activeTab === 'all' ? undefined : activeTab, 1, PAGE_SIZE);
+      const list = Array.isArray(data) ? data : data?.items || [];
+      setItems(list);
+      setHasMore(Array.isArray(data) ? false : list.length < (data?.total ?? list.length));
     } catch {
       setItems([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const data = await listNotifications(tab === 'all' ? undefined : tab, nextPage, PAGE_SIZE);
+      const list = Array.isArray(data) ? data : data?.items || [];
+      if (list.length) {
+        pageRef.current = nextPage;
+        setItems((prev) => [...prev, ...list]);
+      }
+      const total = Array.isArray(data) ? null : data?.total;
+      setHasMore(total != null ? pageRef.current * PAGE_SIZE < total : list.length === PAGE_SIZE);
+    } catch {
+      // Leave hasMore as-is - a transient failure shouldn't stop future scroll attempts.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [tab, hasMore, loadingMore]);
 
   useFocusEffect(
     useCallback(() => {
@@ -139,6 +166,9 @@ export default function Notifications() {
           );
         }}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notifications yet.</Text> : null}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
       />
     </ScreenContainer>
   );
@@ -184,6 +214,9 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  footerLoader: {
+    marginVertical: spacing.md,
   },
   sectionTitle: {
     ...typography.bodyMuted,

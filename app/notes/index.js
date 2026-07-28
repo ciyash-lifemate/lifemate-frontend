@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { View, Text, FlatList, TextInput, Pressable, StyleSheet } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { View, Text, FlatList, TextInput, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
@@ -16,27 +16,60 @@ const formatDate = (value) => {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+const PAGE_SIZE = 20;
+
 export default function NotesList() {
   const router = useRouter();
   const [notes, setNotes] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const pageRef = useRef(1);
 
+  // `query` is captured per-call (not read from state) so a fast-typed
+  // search doesn't race a slower, now-stale request that lands after it.
   const load = useCallback(async (query) => {
+    pageRef.current = 1;
+    setLoading(true);
     try {
-      const data = await listNotes(query);
-      setNotes(Array.isArray(data) ? data : data?.items || []);
+      const data = await listNotes(query, 1, PAGE_SIZE);
+      const items = Array.isArray(data) ? data : data?.items || [];
+      setNotes(items);
+      setHasMore(Array.isArray(data) ? false : items.length < (data?.total ?? items.length));
     } catch {
       setNotes([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const data = await listNotes(search, nextPage, PAGE_SIZE);
+      const items = Array.isArray(data) ? data : data?.items || [];
+      if (items.length) {
+        pageRef.current = nextPage;
+        setNotes((prev) => [...prev, ...items]);
+      }
+      const total = Array.isArray(data) ? null : data?.total;
+      setHasMore(total != null ? pageRef.current * PAGE_SIZE < total : items.length === PAGE_SIZE);
+    } catch {
+      // Leave hasMore as-is - a transient failure shouldn't stop future scroll attempts.
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [search, hasMore, loadingMore]);
+
   useFocusEffect(
     useCallback(() => {
       load(search);
-    }, [load, search])
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [load])
   );
 
   const handleSearchChange = (value) => {
@@ -82,6 +115,9 @@ export default function NotesList() {
           </Pressable>
         )}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notes yet. Tap + to add one.</Text> : null}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
       />
 
       <BottomNavBar />
@@ -123,6 +159,9 @@ const styles = StyleSheet.create({
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
+  },
+  footerLoader: {
+    marginVertical: spacing.md,
   },
   card: {
     flexDirection: 'row',

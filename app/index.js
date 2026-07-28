@@ -13,13 +13,16 @@ export default function Splash() {
   useEffect(() => {
     if (isLoading) return;
 
+    // Brief brand flash only - this used to be 900ms stacked ON TOP of
+    // however long the actual auth check (getMe()/token read) took, making
+    // every cold start feel slower than it needed to.
     const timer = setTimeout(() => {
       if (user) {
         router.replace(user.is_profile_complete ? '/home' : '/create-profile');
       } else {
         router.replace('/onboarding');
       }
-    }, 900);
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [isLoading, user]);
