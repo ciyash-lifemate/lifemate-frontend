@@ -1,4 +1,5 @@
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, spacing, typography } from '../theme.js';
 import { VoiceMicButton } from './VoiceMicButton.js';
 
@@ -12,6 +13,11 @@ export const TextField = ({ label, style, containerStyle, prefix, voiceInput, ..
         placeholderTextColor={colors.textMuted}
         {...inputProps}
       />
+      {inputProps.value ? (
+        <Pressable onPress={() => inputProps.onChangeText?.('')} hitSlop={10} style={styles.clearBtn}>
+          <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+        </Pressable>
+      ) : null}
       {voiceInput ? (
         <VoiceMicButton value={inputProps.value} onChangeText={inputProps.onChangeText} style={styles.micBtn} />
       ) : null}
@@ -45,6 +51,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 52,
     ...typography.body,
+  },
+  clearBtn: {
+    marginLeft: spacing.xs,
   },
   micBtn: {
     marginLeft: spacing.xs,

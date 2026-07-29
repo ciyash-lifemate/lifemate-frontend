@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { Platform } from 'react-native';
 import { getToken, saveToken, clearToken, getMe, registerDeviceToken, unregisterDeviceToken } from '../api/index.js';
 import { getExpoPushToken } from '../utils/notifications.js';
+import { cancelAllLocalReminders } from '../utils/localReminders.js';
 
 const AuthContext = createContext(null);
 
@@ -58,6 +59,9 @@ export const AuthProvider = ({ children }) => {
     } catch {
       // Best-effort only.
     }
+    // So a different account signing into the same device never inherits
+    // this account's on-device reminder alerts (see src/utils/localReminders.js).
+    await cancelAllLocalReminders();
     await clearToken();
     setUser(null);
   }, []);

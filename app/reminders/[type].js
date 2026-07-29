@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Alert, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, Share, Alert, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -9,12 +9,14 @@ import { TextField } from '../../src/components/TextField.js';
 import { DateField } from '../../src/components/DateField.js';
 import { SelectField } from '../../src/components/SelectField.js';
 import { ChecklistEditor } from '../../src/components/ChecklistEditor.js';
+import { RecipientPicker } from '../../src/components/RecipientPicker.js';
 import { Button } from '../../src/components/Button.js';
 import { VoiceFormFillButton } from '../../src/components/VoiceFormFillButton.js';
 import { createReminder, getReminder, updateReminder, deleteReminder, getErrorMessage } from '../../src/api/index.js';
 import { useAuth } from '../../src/context/AuthContext.js';
 import { openWhatsAppWish, buildWishMessage } from '../../src/utils/whatsapp.js';
 import { parseReminderVoice } from '../../src/utils/parseReminderVoice.js';
+import { resyncLocalReminders } from '../../src/utils/localReminders.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../../src/theme.js';
 
 // One tap away from Send (see src/utils/whatsapp.js for why it can't be
@@ -45,19 +47,31 @@ const YEARLY_REPEAT_OPTIONS = [
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+// Plain-text summary for the generic "let someone know outside the app"
+// options (WhatsApp one-tap send, or the phone's own Share sheet) - every
+// Quick Add type gets these now, not just birthday's canned wish messages.
+const buildShareMessage = (title, description, date, time) => {
+  const when = time ? `${date} at ${time}` : date;
+  return `${title}${description ? `\n${description}` : ''}\nWhen: ${when}`;
+};
+
 // reminder_date is NOT NULL on the backend for every type, but the mockup
 // only surfaces a date field for types where the date is meaningful to pick
 // (birthday/anniversary/task/custom). Medicine reminders silently anchor to
-// today, matching the "Medicine Name / Dosage / Time / Repeat / Notes" form.
+// today, matching the "Medicine Name / Time(s) / Repeat / Notes" form.
 const TYPE_CONFIG = {
   medicine: {
     heading: 'Medicine Reminder',
     nameLabel: 'Medicine Name',
     namePlaceholder: 'Paracetamol',
-    hasDosage: true,
     hasTime: true,
     hasDate: false,
     hasChecklist: true,
+    hasRecipients: true,
+    // Same medicine, several doses a day (8am, 1pm, 4pm...) - each becomes
+    // its own independent, separately-completable reminder rather than one
+    // row trying to represent multiple times (see handleSave).
+    hasMultipleTimes: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'daily',
   },
@@ -65,11 +79,11 @@ const TYPE_CONFIG = {
     heading: 'Birthday Reminder',
     nameLabel: "Person's Name",
     namePlaceholder: 'Mom',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
     hasWish: true,
     hasChecklist: true,
+    hasRecipients: true,
     repeatOptions: YEARLY_REPEAT_OPTIONS,
     defaultRepeat: 'yearly',
   },
@@ -77,9 +91,9 @@ const TYPE_CONFIG = {
     heading: 'Anniversary Reminder',
     nameLabel: 'Occasion Name',
     namePlaceholder: 'Wedding Anniversary',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
+    hasRecipients: true,
     repeatOptions: YEARLY_REPEAT_OPTIONS,
     defaultRepeat: 'yearly',
   },
@@ -87,9 +101,9 @@ const TYPE_CONFIG = {
     heading: 'Task Reminder',
     nameLabel: 'Task Title',
     namePlaceholder: 'Submit report',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
+    hasRecipients: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'none',
   },
@@ -97,10 +111,10 @@ const TYPE_CONFIG = {
     heading: 'Others Reminder',
     nameLabel: 'Title',
     namePlaceholder: 'Water the plants',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
     hasChecklist: true,
+    hasRecipients: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'none',
   },
@@ -108,10 +122,11 @@ const TYPE_CONFIG = {
     heading: 'Event / Meeting',
     nameLabel: 'Event / Meeting Title',
     namePlaceholder: 'Team Standup',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
     hasChecklist: true,
+    checklistLabel: 'Agenda',
+    hasRecipients: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'none',
   },
@@ -119,9 +134,9 @@ const TYPE_CONFIG = {
     heading: 'Recharge Reminder',
     nameLabel: 'Recharge For',
     namePlaceholder: 'Mobile Recharge',
-    hasDosage: false,
     hasTime: true,
     hasDate: true,
+    hasRecipients: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'monthly',
   },
@@ -129,12 +144,24 @@ const TYPE_CONFIG = {
     heading: 'Alarm',
     nameLabel: 'Alarm Label',
     namePlaceholder: 'Wake up',
-    hasDosage: false,
     hasTime: true,
     hasDate: false,
     hasChecklist: true,
+    hasRecipients: true,
     repeatOptions: REPEAT_OPTIONS,
     defaultRepeat: 'daily',
+  },
+  company: {
+    heading: 'Company Reminder',
+    nameLabel: 'Company Name',
+    namePlaceholder: 'Acme Pvt Ltd',
+    notesLabel: 'Task',
+    notesPlaceholder: 'Follow up on invoice',
+    hasTime: true,
+    hasDate: true,
+    hasRecipients: true,
+    repeatOptions: REPEAT_OPTIONS,
+    defaultRepeat: 'none',
   },
 };
 
@@ -146,17 +173,24 @@ export default function ReminderForm() {
   const typeStyle = reminderTypeStyles[type] || reminderTypeStyles.custom;
 
   const [title, setTitle] = useState('');
-  const [dosage, setDosage] = useState('');
   // Pre-filled when opened from Calendar's "+" on a selected day; overwritten
   // below by the fetched reminder's own date when editing an existing one.
   const [date, setDate] = useState(paramDate || '');
   const [time, setTime] = useState('');
+  // Extra dose times for hasMultipleTimes types (medicine) - each becomes
+  // its own separate reminder on save, alongside the primary `time` above.
+  // Always starts empty, even when editing - the existing reminder being
+  // edited is still just the one row for `time`; anything added here
+  // creates new sibling reminders rather than trying to represent several
+  // times on a single row.
+  const [extraTimes, setExtraTimes] = useState([]);
   const [repeat, setRepeat] = useState(config?.defaultRepeat || 'none');
   const [notes, setNotes] = useState('');
   const [recipientMobile, setRecipientMobile] = useState('');
   const [wishMessage, setWishMessage] = useState(WISH_OPTIONS[0].value);
-  const [checklistItems, setChecklistItems] = useState(() => (config?.hasChecklist ? [{ text: '', done: false }] : []));
+  const [checklistItems, setChecklistItems] = useState([]);
   const [voiceMessage, setVoiceMessage] = useState('');
+  const [recipients, setRecipients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(!!id);
@@ -167,15 +201,15 @@ export default function ReminderForm() {
       try {
         const reminder = await getReminder(id);
         setTitle(reminder.title || '');
-        setDosage(reminder.dosage || '');
         setDate(reminder.reminder_date || '');
         setTime((reminder.reminder_time || '').slice(0, 5));
         setRepeat(reminder.repeat_type || config?.defaultRepeat || 'none');
         setNotes(reminder.description || '');
         setRecipientMobile(reminder.recipient_mobile || '');
         setWishMessage(reminder.wish_message || WISH_OPTIONS[0].value);
-        setChecklistItems(reminder.checklist_items?.length ? reminder.checklist_items : [{ text: '', done: false }]);
+        setChecklistItems(reminder.checklist_items || []);
         setVoiceMessage(reminder.voice_message || '');
+        setRecipients(reminder.recipients || []);
       } catch {
         // Fall back to a blank form if the reminder can't be fetched.
       } finally {
@@ -206,15 +240,17 @@ export default function ReminderForm() {
       Alert.alert('Time required', 'Please select a time.');
       return;
     }
+    if (config.hasMultipleTimes && extraTimes.some((t) => !t)) {
+      Alert.alert('Time required', 'Please set a time for each additional dose, or remove it.');
+      return;
+    }
 
-    const payload = {
+    const basePayload = {
       type,
       title: title.trim(),
       repeatType: repeat,
       description: notes.trim() || undefined,
       reminderDate: config.hasDate ? date : todayIso(),
-      ...(config.hasTime ? { reminderTime: time } : {}),
-      ...(config.hasDosage ? { dosage: dosage.trim() || undefined } : {}),
       ...(config.hasWish
         ? { recipientMobile: recipientMobile.trim() || undefined, wishMessage: wishMessage || undefined }
         : {}),
@@ -225,18 +261,31 @@ export default function ReminderForm() {
               .map((item) => ({ text: item.text.trim(), done: !!item.done })),
           }
         : {}),
+      ...(config.hasRecipients ? { recipientUserIds: recipients.map((r) => r.id) } : {}),
       voiceMessage: voiceMessage.trim() || undefined,
     };
+    // A separate call per dose time - Medicine's several-times-a-day case
+    // needs several independently completable reminders, not one row
+    // trying to hold multiple times.
+    const withTime = (reminderTime) => (config.hasTime ? { ...basePayload, reminderTime } : basePayload);
 
     setLoading(true);
     try {
-      // The backend's scheduler fires the due-reminder push itself - nothing
-      // to schedule on-device here.
       if (id) {
-        await updateReminder(id, payload);
+        await updateReminder(id, withTime(time));
       } else {
-        await createReminder(payload);
+        await createReminder(withTime(time));
       }
+      if (config.hasMultipleTimes) {
+        for (const extraTime of extraTimes) {
+          await createReminder(withTime(extraTime));
+        }
+      }
+      // Best-effort, fire-and-forget - keeps the on-device alert (see
+      // src/utils/localReminders.js) in sync immediately instead of waiting
+      // for the next app-foreground resync. Not awaited so a slow/offline
+      // resync never delays navigating back.
+      resyncLocalReminders(user?.id);
       router.back();
     } catch (err) {
       Alert.alert('Could not save reminder', getErrorMessage(err));
@@ -244,6 +293,11 @@ export default function ReminderForm() {
       setLoading(false);
     }
   };
+
+  const addExtraTime = () => setExtraTimes((prev) => [...prev, '']);
+  const updateExtraTime = (index, value) =>
+    setExtraTimes((prev) => prev.map((t, i) => (i === index ? value : t)));
+  const removeExtraTime = (index) => setExtraTimes((prev) => prev.filter((_, i) => i !== index));
 
   const handleVoiceFill = (transcript) => {
     const parsed = parseReminderVoice(transcript);
@@ -257,8 +311,20 @@ export default function ReminderForm() {
       Alert.alert('Mobile number required', "Add the person's WhatsApp number first.");
       return;
     }
-    const message = buildWishMessage(title.trim(), wishMessage, user?.name);
+    const message = config.hasWish
+      ? buildWishMessage(title.trim(), wishMessage, user?.name)
+      : buildShareMessage(title.trim(), notes.trim(), config.hasDate ? date : todayIso(), config.hasTime ? time : '');
     openWhatsAppWish(recipientMobile, message);
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: buildShareMessage(title.trim(), notes.trim(), config.hasDate ? date : todayIso(), config.hasTime ? time : ''),
+      });
+    } catch {
+      // Best-effort - the share sheet itself already surfaces its own errors.
+    }
   };
 
   const handleDelete = () => {
@@ -271,6 +337,7 @@ export default function ReminderForm() {
           setDeleting(true);
           try {
             await deleteReminder(id);
+            resyncLocalReminders(user?.id);
             router.back();
           } catch (err) {
             setDeleting(false);
@@ -322,18 +389,38 @@ export default function ReminderForm() {
           voiceInput
         />
 
-        {config.hasDosage ? (
-          <TextField label="Dosage" placeholder="500 mg" value={dosage} onChangeText={setDosage} />
-        ) : null}
-
         {config.hasDate ? <DateField label="Date" value={date} onChange={setDate} mode="date" /> : null}
         {config.hasTime ? <DateField label="Time" value={time} onChange={setTime} mode="time" /> : null}
+
+        {config.hasMultipleTimes ? (
+          <>
+            {extraTimes.map((extraTime, index) => (
+              <View key={index} style={styles.extraTimeRow}>
+                <View style={styles.extraTimeField}>
+                  <DateField
+                    label={`Dose ${index + 2} Time`}
+                    value={extraTime}
+                    onChange={(value) => updateExtraTime(index, value)}
+                    mode="time"
+                  />
+                </View>
+                <Pressable onPress={() => removeExtraTime(index)} hitSlop={10} style={styles.removeTimeBtn}>
+                  <Ionicons name="close-circle" size={22} color={colors.danger} />
+                </Pressable>
+              </View>
+            ))}
+            <Pressable onPress={addExtraTime} style={styles.addTimeBtn}>
+              <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+              <Text style={styles.addTimeText}>Add another time today</Text>
+            </Pressable>
+          </>
+        ) : null}
 
         <SelectField label="Repeat" value={repeat} options={config.repeatOptions} onChange={setRepeat} />
 
         <TextField
-          label="Notes (optional)"
-          placeholder="After food"
+          label={config.notesLabel || 'Notes (optional)'}
+          placeholder={config.notesPlaceholder || 'After food'}
           value={notes}
           onChangeText={setNotes}
           multiline
@@ -356,30 +443,41 @@ export default function ReminderForm() {
         </Text>
 
         {config.hasChecklist ? (
-          <ChecklistEditor label="Agenda / Checklist" items={checklistItems} onChange={setChecklistItems} />
+          <ChecklistEditor label={config.checklistLabel || 'Checklist'} items={checklistItems} onChange={setChecklistItems} />
         ) : null}
 
+        {config.hasRecipients ? <RecipientPicker value={recipients} onChange={setRecipients} /> : null}
+
+        <TextField
+          label="WhatsApp number (optional)"
+          placeholder="+91 98765 43210"
+          value={recipientMobile}
+          onChangeText={setRecipientMobile}
+          keyboardType="phone-pad"
+        />
         {config.hasWish ? (
-          <>
-            <TextField
-              label="WhatsApp number (optional)"
-              placeholder="+91 98765 43210"
-              value={recipientMobile}
-              onChangeText={setRecipientMobile}
-              keyboardType="phone-pad"
-            />
-            <SelectField label="Wish message" value={wishMessage} options={WISH_OPTIONS} onChange={setWishMessage} />
-            {recipientMobile.trim() ? (
-              <Pressable style={styles.whatsappBtn} onPress={handleSendWishNow}>
-                <Ionicons name="logo-whatsapp" size={18} color={colors.success} />
-                <Text style={styles.whatsappBtnText}>Send this wish via WhatsApp now</Text>
-              </Pressable>
-            ) : null}
-            <Text style={styles.wishHint}>
-              At the reminder time you'll get a notification - tapping it opens WhatsApp with this message ready to
-              send. WhatsApp doesn't allow sending without you tapping Send yourself.
-            </Text>
-          </>
+          <SelectField label="Wish message" value={wishMessage} options={WISH_OPTIONS} onChange={setWishMessage} />
+        ) : null}
+        <Text style={styles.shareHint}>
+          Let someone know outside the app too - WhatsApp opens pre-filled, or use Share for anything else (SMS,
+          email, another app).
+        </Text>
+        <View style={styles.shareRow}>
+          {recipientMobile.trim() ? (
+            <Pressable style={styles.whatsappBtn} onPress={handleSendWishNow}>
+              <Ionicons name="logo-whatsapp" size={18} color={colors.success} />
+              <Text style={styles.whatsappBtnText}>WhatsApp</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={styles.shareBtn} onPress={handleShare}>
+            <Ionicons name="share-social-outline" size={18} color={colors.primary} />
+            <Text style={styles.shareBtnText}>Share…</Text>
+          </Pressable>
+        </View>
+        {config.hasWish ? (
+          <Text style={styles.wishHint}>
+            WhatsApp doesn't allow sending without you tapping Send yourself - this just opens the chat pre-filled.
+          </Text>
         ) : null}
 
         <Button title="Save Reminder" onPress={handleSave} loading={loading} style={styles.submit} />
@@ -406,7 +504,39 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: spacing.lg,
   },
+  extraTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  extraTimeField: {
+    flex: 1,
+  },
+  removeTimeBtn: {
+    marginBottom: spacing.md,
+  },
+  addTimeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  addTimeText: {
+    ...typography.bodyMuted,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  shareHint: {
+    ...typography.caption,
+    marginBottom: spacing.sm,
+  },
+  shareRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
   whatsappBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -415,11 +545,26 @@ const styles = StyleSheet.create({
     borderColor: colors.success,
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
   },
   whatsappBtnText: {
     ...typography.body,
     color: colors.success,
+    fontWeight: '600',
+  },
+  shareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+  },
+  shareBtnText: {
+    ...typography.body,
+    color: colors.primary,
     fontWeight: '600',
   },
   wishHint: {

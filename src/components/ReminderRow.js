@@ -1,6 +1,7 @@
 import { View, Text, Pressable, Alert, StyleSheet } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { DoneToggle } from './DoneToggle.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../theme.js';
 import { formatClockTime } from '../utils/date.js';
 
@@ -41,13 +42,9 @@ export const ReminderRow = ({ reminder, onToggle, onPress, onEdit, onDelete }) =
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       {onToggle ? (
-        <Pressable hitSlop={10} onPress={() => onToggle(reminder)} style={hasOptions && styles.actionSpacing}>
-          <Ionicons
-            name={isCompleted ? 'checkmark-circle' : 'ellipse-outline'}
-            size={24}
-            color={isCompleted ? colors.success : colors.danger}
-          />
-        </Pressable>
+        <View style={hasOptions && styles.actionSpacing}>
+          <DoneToggle done={isCompleted} onPress={() => onToggle(reminder)} offColor={colors.danger} />
+        </View>
       ) : null}
       {hasOptions ? (
         <Pressable hitSlop={10} onPress={handleOptions}>

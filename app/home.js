@@ -17,15 +17,26 @@ import {
   getErrorMessage,
 } from '../src/api/index.js';
 import { useAuth } from '../src/context/AuthContext.js';
+import { resyncLocalReminders } from '../src/utils/localReminders.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
 
 const QUICK_ADD = [
   { key: 'medicine', label: 'Medicine', path: '/reminders/medicine' },
   { key: 'birthday', label: 'Birthday', path: '/reminders/birthday' },
-  { key: 'note', label: 'Note', path: '/notes' },
+  // Not a reminder (separate `notes` table, no `type` field) - given its
+  // own icon rather than sharing reminderTypeStyles.note, which is now the
+  // Business Message feature's look, so the two tiles don't read as the
+  // same thing.
+  { key: 'note', label: 'Note', path: '/notes', style: { color: colors.warning, bg: '#FDF3E1', icon: 'note-text' } },
   { key: 'event', label: 'Event/Meeting', path: '/reminders/event' },
   { key: 'alarm', label: 'Alarm', path: '/reminders/alarm' },
   { key: 'custom', label: 'Others', path: '/reminders/custom' },
+];
+
+const QUICK_ADD_BUSINESS = [
+  { key: 'company', label: 'Companies', path: '/companies' },
+  { key: 'task', label: 'Tasks', path: '/tasks' },
+  { key: 'note', label: 'Message', path: '/business-notes' },
 ];
 
 const greeting = () => {
@@ -77,6 +88,7 @@ export default function Home() {
     setReminders((prev) => prev.map((r) => (r.id === reminder.id ? { ...r, is_completed: next } : r)));
     try {
       await completeReminder(reminder.id, next);
+      resyncLocalReminders(user?.id);
     } catch {
       setReminders((prev) => prev.map((r) => (r.id === reminder.id ? { ...r, is_completed: !next } : r)));
     }
@@ -85,10 +97,41 @@ export default function Home() {
   const completedCount = reminders.filter((r) => r.is_completed).length;
   const pendingCount = reminders.length - completedCount;
 
+  const renderQuickAddItem = (item) => {
+    const type = item.style || reminderTypeStyles[item.key];
+    return (
+      <Pressable key={item.key} style={styles.quickAddItem} onPress={() => router.push(item.path)}>
+        <View style={[styles.quickAddIcon, { backgroundColor: type.bg }]}>
+          <MaterialCommunityIcons name={type.icon} size={22} color={type.color} />
+        </View>
+        <Text style={styles.quickAddLabel}>{item.label}</Text>
+      </Pressable>
+    );
+  };
+
   const openReminder = (reminder) => setSelectedReminderId(reminder.id);
 
   const handleEdit = (reminder) => {
     setSelectedReminderId(null);
+    // Group reminders (Company -> Project -> Group) get their own screen -
+    // permission-gated editing and the append-only update thread don't fit
+    // the generic per-type reminder form.
+    if (reminder.group_id) {
+      router.push(`/group-reminders/${reminder.id}`);
+      return;
+    }
+    // Project Tasks get their own screen too - single-assignee delegation
+    // (with a creator/assignee view split) doesn't fit the generic form.
+    if (reminder.project_id) {
+      router.push(`/tasks/${reminder.id}`);
+      return;
+    }
+    // Business Notes (type 'note') have no TYPE_CONFIG entry in the
+    // generic form - they get their own screen too.
+    if (reminder.type === 'note') {
+      router.push(`/business-notes/${reminder.id}`);
+      return;
+    }
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
   };
 
@@ -104,6 +147,7 @@ export default function Home() {
           setReminders((prev) => prev.filter((r) => r.id !== reminder.id));
           try {
             await deleteReminder(reminder.id);
+            resyncLocalReminders(user?.id);
           } catch (err) {
             setReminders(previous);
             Alert.alert('Could not delete reminder', getErrorMessage(err));
@@ -185,19 +229,10 @@ export default function Home() {
         )}
 
         <Text style={[styles.sectionTitle, styles.quickAddTitle]}>Quick Add</Text>
-        <View style={styles.quickAddRow}>
-          {QUICK_ADD.map((item) => {
-            const type = reminderTypeStyles[item.key];
-            return (
-              <Pressable key={item.key} style={styles.quickAddItem} onPress={() => router.push(item.path)}>
-                <View style={[styles.quickAddIcon, { backgroundColor: type.bg }]}>
-                  <MaterialCommunityIcons name={type.icon} size={22} color={type.color} />
-                </View>
-                <Text style={styles.quickAddLabel}>{item.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <View style={styles.quickAddRow}>{QUICK_ADD.map(renderQuickAddItem)}</View>
+
+        <Text style={[styles.sectionTitle, styles.quickAddTitle]}>Business</Text>
+        <View style={styles.quickAddRow}>{QUICK_ADD_BUSINESS.map(renderQuickAddItem)}</View>
       </ScrollView>
       <BottomNavBar />
       <ReminderDetailModal

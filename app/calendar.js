@@ -7,6 +7,8 @@ import { BottomNavBar } from '../src/components/BottomNavBar.js';
 import { ReminderRow } from '../src/components/ReminderRow.js';
 import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
 import { listCalendarReminders, completeReminder, deleteReminder, getErrorMessage } from '../src/api/index.js';
+import { resyncLocalReminders } from '../src/utils/localReminders.js';
+import { useAuth } from '../src/context/AuthContext.js';
 import { colors, radius, spacing, typography } from '../src/theme.js';
 
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -25,6 +27,7 @@ const buildGrid = (year, month) => {
 
 export default function Calendar() {
   const router = useRouter();
+  const { user } = useAuth();
   const today = new Date();
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDay, setSelectedDay] = useState(today.getDate());
@@ -87,6 +90,7 @@ export default function Calendar() {
     }));
     try {
       await completeReminder(reminder.id, next);
+      resyncLocalReminders(user?.id);
     } catch {
       setRemindersByDate((prev) => ({
         ...prev,
@@ -99,6 +103,18 @@ export default function Calendar() {
 
   const handleEdit = (reminder) => {
     setSelectedReminderId(null);
+    if (reminder.group_id) {
+      router.push(`/group-reminders/${reminder.id}`);
+      return;
+    }
+    if (reminder.project_id) {
+      router.push(`/tasks/${reminder.id}`);
+      return;
+    }
+    if (reminder.type === 'note') {
+      router.push(`/business-notes/${reminder.id}`);
+      return;
+    }
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
   };
 
@@ -117,6 +133,7 @@ export default function Calendar() {
           }));
           try {
             await deleteReminder(reminder.id);
+            resyncLocalReminders(user?.id);
           } catch (err) {
             setRemindersByDate(previous);
             Alert.alert('Could not delete reminder', getErrorMessage(err));

@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from '../src/context/AuthContext.js';
 import { ReminderAlertWatcher } from '../src/components/ReminderAlertWatcher.js';
+import { LocalReminderSync } from '../src/components/LocalReminderSync.js';
 import {
   setupNotifications,
   subscribeToNotificationTaps,
@@ -24,6 +25,26 @@ const handleNotificationTap = (router, senderName) => (data) => {
   if (data.type === 'reminder' && data.reminderType) {
     if (data.recipientMobile && data.wishMessage) {
       openWhatsAppWish(data.recipientMobile, buildWishMessage(data.recipientName, data.wishMessage, senderName));
+      return;
+    }
+    // Company/Project/Group reminders carry groupId in the push payload
+    // (see notifications.service.js) - they open their own permission-aware
+    // screen instead of the generic per-type reminder form.
+    if (data.groupId) {
+      router.push(`/group-reminders/${data.reminderId}`);
+      return;
+    }
+    // A Project Task carries projectId in the push/local-notification
+    // payload (see notifications.service.js and src/utils/localReminders.js)
+    // - it opens its own creator/assignee-aware screen instead.
+    if (data.projectId) {
+      router.push(`/tasks/${data.reminderId}`);
+      return;
+    }
+    // Business Notes (type 'note') have no TYPE_CONFIG entry in the
+    // generic form - they get their own screen too.
+    if (data.reminderType === 'note') {
+      router.push(`/business-notes/${data.reminderId}`);
       return;
     }
     router.push({ pathname: `/reminders/${data.reminderType}`, params: { id: data.reminderId } });
@@ -118,6 +139,16 @@ const RootNavigator = () => {
         <Stack.Screen key="profile" name="profile" />,
         <Stack.Screen key="edit-profile" name="edit-profile" />,
         <Stack.Screen key="business-card" name="business-card" />,
+        <Stack.Screen key="companies/index" name="companies/index" />,
+        <Stack.Screen key="companies/[id]" name="companies/[id]" />,
+        <Stack.Screen key="projects/[id]" name="projects/[id]" />,
+        <Stack.Screen key="reminder-groups/[id]" name="reminder-groups/[id]" />,
+        <Stack.Screen key="reminder-groups/[id]/members" name="reminder-groups/[id]/members" />,
+        <Stack.Screen key="group-reminders/[id]" name="group-reminders/[id]" />,
+        <Stack.Screen key="tasks/index" name="tasks/index" />,
+        <Stack.Screen key="tasks/[id]" name="tasks/[id]" />,
+        <Stack.Screen key="business-notes/index" name="business-notes/index" />,
+        <Stack.Screen key="business-notes/[id]" name="business-notes/[id]" />,
       ];
 
   return (
@@ -136,6 +167,7 @@ export default function RootLayout() {
           <StatusBar style="light" />
           <NotificationTapRouter />
           <ReminderAlertWatcher />
+          <LocalReminderSync />
           <RootNavigator />
         </AuthProvider>
       </SafeAreaProvider>

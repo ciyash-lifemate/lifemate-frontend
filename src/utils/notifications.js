@@ -95,10 +95,11 @@ export const subscribeToNotificationReceived = (handler) => {
 };
 
 // Fires when the user taps a notification (foreground, background, or from
-// a killed app's tray). `handler` receives the push payload's `data` object,
-// e.g. { type: 'reminder', reminderId, reminderType } - reminder due-alerts
-// are sent by the backend's scheduler now, not scheduled on-device, so this
-// is purely about deep-linking a tap to the right screen.
+// a killed app's tray) - a server push (see notifyReminderDue on the
+// backend) or an on-device local notification (see src/utils/localReminders.js)
+// both land here identically. `handler` receives the notification's `data`
+// object, e.g. { type: 'reminder', reminderId, reminderType } - this is
+// purely about deep-linking a tap to the right screen.
 // Returns an unsubscribe function; a no-op where notifications aren't supported.
 export const subscribeToNotificationTaps = (handler) => {
   const Notifications = getNotifications();

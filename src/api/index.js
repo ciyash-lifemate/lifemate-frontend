@@ -59,6 +59,34 @@ export const updateReminder = (id, payload) => unwrap(client.put(`/reminders/${i
 export const completeReminder = (id, isCompleted) =>
   unwrap(client.patch(`/reminders/${id}/complete`, { isCompleted }));
 export const deleteReminder = (id) => unwrap(client.delete(`/reminders/${id}`));
+export const listReminderUpdates = (id) => unwrap(client.get(`/reminders/${id}/updates`));
+export const addReminderUpdate = (id, note) => unwrap(client.post(`/reminders/${id}/updates`, { note }));
+
+// --- companies / projects / reminder groups (Business follow-ups) ---
+
+export const listCompanies = () => unwrap(client.get('/companies'));
+export const getCompany = (id) => unwrap(client.get(`/companies/${id}`));
+export const createCompany = (payload) => unwrap(client.post('/companies', payload));
+export const updateCompany = (id, payload) => unwrap(client.put(`/companies/${id}`, payload));
+export const deleteCompany = (id) => unwrap(client.delete(`/companies/${id}`));
+
+export const listProjects = (companyId) => unwrap(client.get('/projects', { params: { companyId } }));
+export const getProject = (id) => unwrap(client.get(`/projects/${id}`));
+export const createProject = (payload) => unwrap(client.post('/projects', payload));
+export const updateProject = (id, payload) => unwrap(client.put(`/projects/${id}`, payload));
+export const deleteProject = (id) => unwrap(client.delete(`/projects/${id}`));
+
+export const listReminderGroups = (projectId) => unwrap(client.get('/reminder-groups', { params: { projectId } }));
+export const getReminderGroup = (id) => unwrap(client.get(`/reminder-groups/${id}`));
+export const createReminderGroup = (payload) => unwrap(client.post('/reminder-groups', payload));
+export const updateReminderGroup = (id, payload) => unwrap(client.put(`/reminder-groups/${id}`, payload));
+export const deleteReminderGroup = (id) => unwrap(client.delete(`/reminder-groups/${id}`));
+export const setGroupSelfReminder = (id, enabled) =>
+  unwrap(client.patch(`/reminder-groups/${id}/self-reminder`, { enabled }));
+export const addGroupMembers = (id, userIds) => unwrap(client.post(`/reminder-groups/${id}/members`, { userIds }));
+export const removeGroupMember = (id, userId) => unwrap(client.delete(`/reminder-groups/${id}/members/${userId}`));
+export const setGroupMemberAccess = (id, userId, enabled) =>
+  unwrap(client.patch(`/reminder-groups/${id}/members/${userId}/access`, { enabled }));
 
 // --- notes ---
 
@@ -100,4 +128,4 @@ export const updateBusinessCard = (payload) => unwrap(client.put('/business-card
 // --- banners ---
 
 export const listBanners = () => unwrap(client.get('/banners'));
-  
+      

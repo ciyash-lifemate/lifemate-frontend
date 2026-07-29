@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Pressable, Text, StyleSheet, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from '../utils/speechRecognition.js';
 import { colors, radius, spacing, typography } from '../theme.js';
 
 // Own start/stop gate, separate from VoiceMicButton's - this button hands a
@@ -38,6 +38,10 @@ export const VoiceFormFillButton = ({ onResult, lang = 'en-IN', label = 'Fill wi
   });
 
   const handlePress = async () => {
+    if (!ExpoSpeechRecognitionModule) {
+      Alert.alert('Voice input unavailable', 'This build of the app does not include voice input yet.');
+      return;
+    }
     if (listening) {
       ExpoSpeechRecognitionModule.stop();
       return;

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from '../utils/speechRecognition.js';
 import { colors } from '../theme.js';
 
 // Only one native recognition session can run at a time, but every
@@ -39,6 +39,10 @@ export const VoiceMicButton = ({ value, onChangeText, lang = 'en-IN', style }) =
   });
 
   const handlePress = async () => {
+    if (!ExpoSpeechRecognitionModule) {
+      Alert.alert('Voice input unavailable', 'This build of the app does not include voice input yet.');
+      return;
+    }
     if (listening) {
       ExpoSpeechRecognitionModule.stop();
       return;
@@ -57,7 +61,7 @@ export const VoiceMicButton = ({ value, onChangeText, lang = 'en-IN', style }) =
 
   return (
     <Pressable onPress={handlePress} hitSlop={10} style={[styles.btn, style]}>
-      <Ionicons name={listening ? 'mic' : 'mic-outline'} size={20} color={listening ? colors.primary : colors.textSecondary} />
+      <Ionicons name={listening ? 'mic' : 'mic-outline'} size={listening ? 26 : 20} color={listening ? colors.primary : colors.textSecondary} />
     </Pressable>
   );
 };

@@ -1,5 +1,6 @@
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { DoneToggle } from './DoneToggle.js';
 import { colors, radius, spacing, typography } from '../theme.js';
 
 // A dynamic list of {text, done} rows with a trailing "+ Add Item" control -
@@ -24,13 +25,7 @@ export const ChecklistEditor = ({ label = 'Checklist', items, onChange }) => {
 
       {items.map((item, index) => (
         <View key={index} style={styles.row}>
-          <Pressable hitSlop={10} onPress={() => updateItem(index, { done: !item.done })}>
-            <Ionicons
-              name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
-              size={22}
-              color={item.done ? colors.success : colors.textMuted}
-            />
-          </Pressable>
+          <DoneToggle done={item.done} onPress={() => updateItem(index, { done: !item.done })} size={22} />
           <TextInput
             style={[styles.input, item.done && styles.inputDone]}
             placeholder={`Item ${index + 1}`}

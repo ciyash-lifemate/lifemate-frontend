@@ -55,10 +55,25 @@ export const reminderTypeStyles = {
   medicine: { color: colors.blue, bg: '#E8F0FE', icon: 'pill' },
   birthday: { color: colors.pink, bg: '#FDE8F0', icon: 'cake-variant' },
   anniversary: { color: colors.danger, bg: '#FDE9E9', icon: 'heart' },
-  note: { color: colors.warning, bg: '#FDF3E1', icon: 'note-text' },
+  // type 'note' reminders are exclusively the Business "Message" feature
+  // (app/business-notes) - the plain personal Notes tile on Home isn't a
+  // reminder at all (separate `notes` table, no type field) and deliberately
+  // keeps its own distinct icon defined inline in home.js, so the two don't
+  // look like the same feature.
+  note: { color: '#1D4ED8', bg: '#DBEAFE', icon: 'message-text-outline' },
   task: { color: colors.success, bg: '#E7F8ED', icon: 'checkbox-marked-circle-outline' },
   custom: { color: colors.primary, bg: colors.primaryLight, icon: 'clock-outline' },
   recharge: { color: '#0EA5E9', bg: '#E0F2FE', icon: 'sim' },
   event: { color: '#7C3AED', bg: '#EFE9FE', icon: 'calendar-account-outline' },
   alarm: { color: '#DC2626', bg: '#FDE9E9', icon: 'alarm' },
+  company: { color: '#0F766E', bg: '#E1F4F1', icon: 'domain' },
+};
+
+// Accent colors for the Company -> Project -> Group hierarchy screens -
+// these aren't reminder "types" (group reminders keep type "company" above
+// and get that icon for free), just card/icon styling for the browsing UI.
+export const hierarchyStyles = {
+  company: { color: '#0F766E', bg: '#E1F4F1', icon: 'domain' },
+  project: { color: '#6D28D9', bg: '#EFE9FE', icon: 'folder-outline' },
+  group: { color: '#0891B2', bg: '#E0F7FA', icon: 'account-group' },
 };

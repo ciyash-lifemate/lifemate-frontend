@@ -2,6 +2,7 @@ import { View, Text, Modal, ScrollView, Pressable, StyleSheet } from 'react-nati
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from './Button.js';
+import { DoneToggle } from './DoneToggle.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../theme.js';
 import { formatClockTime } from '../utils/date.js';
 import { speakReminder } from '../utils/speech.js';
@@ -80,11 +81,7 @@ export const ReminderDetailModal = ({ visible, reminder, onClose, onToggle, onEd
 
             {onToggle ? (
               <Pressable style={styles.completeRow} onPress={() => onToggle(reminder)}>
-                <Ionicons
-                  name={isCompleted ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={22}
-                  color={isCompleted ? colors.success : colors.danger}
-                />
+                <DoneToggle done={isCompleted} offColor={colors.danger} />
                 <Text style={[styles.completeText, isCompleted && styles.completeTextDone]}>
                   {isCompleted ? 'Marked as done' : 'Mark as done'}
                 </Text>
@@ -110,11 +107,7 @@ export const ReminderDetailModal = ({ visible, reminder, onClose, onToggle, onEd
                 <Text style={styles.sectionLabel}>Checklist</Text>
                 {checklist.map((item, index) => (
                   <View key={index} style={styles.checklistRow}>
-                    <Ionicons
-                      name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={item.done ? colors.success : colors.textMuted}
-                    />
+                    <DoneToggle done={item.done} size={18} />
                     <Text style={[styles.checklistText, item.done && styles.checklistTextDone]}>{item.text}</Text>
                   </View>
                 ))}
