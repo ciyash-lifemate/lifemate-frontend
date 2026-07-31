@@ -17,7 +17,36 @@ import { useAuth } from '../../src/context/AuthContext.js';
 import { parseReminderVoice } from '../../src/utils/parseReminderVoice.js';
 import { resyncLocalReminders } from '../../src/utils/localReminders.js';
 import { queueOfflineReminder } from '../../src/utils/offlineReminderQueue.js';
+import { formatClockTime } from '../../src/utils/date.js';
+import { openWhatsAppWish, buildWishMessage } from '../../src/utils/whatsapp.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../../src/theme.js';
+
+const REPEAT_LABELS = {
+  none: 'Does not repeat',
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+  yearly: 'Yearly',
+};
+
+// reminder_time is a bare "HH:mm:ss" and reminder_date a bare "YYYY-MM-DD" -
+// anchoring/splitting by hand like this (rather than new Date(dateString))
+// keeps both read as local wall-clock values, not shifted by the parser
+// treating a dateless/zoneless string as UTC.
+const formatReminderTime = (value) => {
+  if (!value) return '';
+  const [h, m] = value.slice(0, 5).split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return formatClockTime(d);
+};
+
+const formatReminderDate = (value) => {
+  if (!value) return '';
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+};
 
 // One tap away from Send (see src/utils/whatsapp.js for why it can't be
 // fully automatic). "Best Wishes" is included verbatim per the requested list.
@@ -169,6 +198,21 @@ const TYPE_CONFIG = {
   },
 };
 
+// One labeled row in the read-only detail view (see the `viewMode` branch
+// below) - `last` drops the divider so the final row in the card doesn't
+// end in a stray line.
+const ViewInfoRow = ({ icon, label, value, last }) => (
+  <View style={[styles.viewInfoRow, last && styles.viewInfoRowLast]}>
+    <View style={styles.viewInfoIconWrap}>
+      <Ionicons name={icon} size={18} color={colors.primary} />
+    </View>
+    <View style={styles.viewInfoText}>
+      <Text style={styles.viewInfoLabel}>{label}</Text>
+      <Text style={styles.viewInfoValue}>{value}</Text>
+    </View>
+  </View>
+);
+
 export default function ReminderForm() {
   const router = useRouter();
   const { user } = useAuth();
@@ -196,12 +240,27 @@ export default function ReminderForm() {
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(!!id);
+  const [loadedReminder, setLoadedReminder] = useState(null);
+  // Starts false (form) - only flipped to true once the fetched reminder
+  // says the viewer isn't its owner. A new reminder (!id) never has a
+  // reminder to be a non-owner of, so this stays false for the create flow.
+  const [viewMode, setViewMode] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     (async () => {
       try {
         const reminder = await getReminder(id);
+        setLoadedReminder(reminder);
+        // A reminder shared with someone (the common "also remind" picker
+        // case, not a Family edit-permission member) lands here with
+        // can_manage: false - they used to be dropped straight into this
+        // same editable form (with a working Save/Delete that would just
+        // 403 if they tried), which read as "why can I edit someone else's
+        // reminder" and was confusing either way. Anyone who *can* manage it
+        // still reaches the form, just via the read-only view's own Edit
+        // button now instead of automatically.
+        setViewMode(String(reminder.user_id) !== String(user?.id));
         setTitle(reminder.title || '');
         setDate(reminder.reminder_date || '');
         setTime((reminder.reminder_time || '').slice(0, 5));
@@ -366,6 +425,105 @@ export default function ReminderForm() {
       <ScreenContainer>
         <Header title="" />
         <Text style={styles.notFound}>Loading…</Text>
+      </ScreenContainer>
+    );
+  }
+
+  if (loadedReminder && viewMode) {
+    const r = loadedReminder;
+    const otherRecipients = r.recipients || [];
+    const sharedWithText =
+      otherRecipients.length > 1
+        ? `You and ${otherRecipients.length - 1} other${otherRecipients.length - 1 > 1 ? 's' : ''}`
+        : otherRecipients.length === 1
+          ? 'Just you'
+          : null;
+
+    return (
+      <ScreenContainer>
+        <Header title="" />
+        <ScrollView contentContainerStyle={styles.content}>
+          <Text style={styles.heading}>{config.heading}</Text>
+
+          <View style={styles.viewCard}>
+            <View style={styles.viewCardHeader}>
+              <View style={[styles.iconCircleSm, { backgroundColor: typeStyle.bg }]}>
+                <MaterialCommunityIcons name={typeStyle.icon} size={28} color={typeStyle.color} />
+              </View>
+              <View style={styles.viewCardHeaderText}>
+                <Text style={styles.viewTitle}>{r.title}</Text>
+                <Text style={styles.viewSubtitle}>
+                  {config.heading.replace(' Reminder', '')} • {REPEAT_LABELS[r.repeat_type] || 'Once'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.viewHighlightRow}>
+              <View style={styles.viewHighlightItem}>
+                <Ionicons name="calendar-outline" size={16} color={colors.primaryDark} />
+                <Text style={styles.viewHighlightText}>{formatReminderDate(r.reminder_date)}</Text>
+              </View>
+              {r.reminder_time ? (
+                <View style={styles.viewHighlightItem}>
+                  <Ionicons name="time-outline" size={16} color={colors.primaryDark} />
+                  <Text style={styles.viewHighlightText}>{formatReminderTime(r.reminder_time)}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <ViewInfoRow icon="person-outline" label="Reminder created by" value={r.creator_name || 'Someone'} />
+            <ViewInfoRow icon="repeat-outline" label="Repeat" value={REPEAT_LABELS[r.repeat_type] || 'Once'} />
+            {r.description ? <ViewInfoRow icon="document-text-outline" label="Notes" value={r.description} /> : null}
+            {sharedWithText ? <ViewInfoRow icon="people-outline" label="Shared with" value={sharedWithText} last /> : null}
+            {config.hasWish && r.wish_message ? (
+              <ViewInfoRow icon="chatbubble-outline" label="Wish message" value={r.wish_message} last />
+            ) : null}
+          </View>
+
+          {String(r.user_id) !== String(user?.id) ? (
+            <View style={styles.sharedBanner}>
+              <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+              <View style={styles.sharedBannerText}>
+                <Text style={styles.sharedBannerTitle}>This is a shared reminder</Text>
+                <Text style={styles.sharedBannerBody}>
+                  {r.creator_name || 'Someone'} created this reminder and shared it with you. You'll get notified
+                  when it's time.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {config.hasWish && r.recipient_mobile ? (
+            <View style={styles.wishCard}>
+              <View style={styles.wishCardText}>
+                <Text style={styles.wishCardTitle}>Send wishes</Text>
+                <Text style={styles.wishCardSubtitle}>Send a wish to {r.title}</Text>
+              </View>
+              <Pressable
+                style={styles.whatsappBtn}
+                onPress={() =>
+                  openWhatsAppWish(r.recipient_mobile, buildWishMessage(r.title, r.wish_message, user?.name))
+                }
+              >
+                <Ionicons name="logo-whatsapp" size={16} color={colors.success} />
+                <Text style={styles.whatsappBtnText}>Send via WhatsApp</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {r.can_manage ? (
+            <View style={styles.viewActionsRow}>
+              <Pressable style={styles.viewEditBtn} onPress={() => setViewMode(false)}>
+                <Ionicons name="create-outline" size={18} color={colors.primary} />
+                <Text style={styles.viewEditBtnText}>Edit Reminder</Text>
+              </Pressable>
+              <Pressable style={styles.viewDeleteBtn} onPress={handleDelete} disabled={deleting}>
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                <Text style={styles.viewDeleteBtnText}>Delete Reminder</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </ScrollView>
       </ScreenContainer>
     );
   }
@@ -558,5 +716,171 @@ const styles = StyleSheet.create({
     ...typography.bodyMuted,
     textAlign: 'center',
     marginTop: spacing.xl,
+  },
+  viewCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  viewCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  iconCircleSm: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewCardHeaderText: {
+    flex: 1,
+  },
+  viewTitle: {
+    ...typography.h2,
+  },
+  viewSubtitle: {
+    ...typography.bodyMuted,
+    marginTop: 2,
+  },
+  viewHighlightRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  viewHighlightItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  viewHighlightText: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  viewInfoRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  viewInfoRowLast: {
+    borderBottomWidth: 0,
+  },
+  viewInfoIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewInfoText: {
+    flex: 1,
+  },
+  viewInfoLabel: {
+    ...typography.caption,
+  },
+  viewInfoValue: {
+    ...typography.body,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  sharedBanner: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  sharedBannerText: {
+    flex: 1,
+  },
+  sharedBannerTitle: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.primaryDark,
+  },
+  sharedBannerBody: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  wishCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  wishCardText: {
+    flex: 1,
+  },
+  wishCardTitle: {
+    ...typography.body,
+    fontWeight: '700',
+  },
+  wishCardSubtitle: {
+    ...typography.caption,
+    marginTop: 2,
+  },
+  whatsappBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.success,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  whatsappBtnText: {
+    ...typography.caption,
+    color: colors.success,
+    fontWeight: '700',
+  },
+  viewActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  viewEditBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+  },
+  viewEditBtnText: {
+    ...typography.body,
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  viewDeleteBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: '#FCE9E9',
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+  },
+  viewDeleteBtnText: {
+    ...typography.body,
+    color: colors.danger,
+    fontWeight: '700',
   },
 });

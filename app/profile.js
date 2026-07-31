@@ -11,14 +11,6 @@ const MENU_SECTIONS = [
   {
     items: [
       {
-        key: 'edit-profile',
-        label: 'Edit Profile',
-        subtitle: 'Update your personal information',
-        icon: 'person-outline',
-        iconBg: colors.primaryLight,
-        iconColor: colors.primary,
-      },
-      {
         key: 'business-card',
         label: 'Business Card',
         subtitle: 'Create & share your digital card',
@@ -109,10 +101,6 @@ export default function Profile() {
   const memberSince = formatMemberSince(user?.created_at);
 
   const handlePress = (key) => {
-    if (key === 'edit-profile') {
-      router.push('/edit-profile');
-      return;
-    }
     if (key === 'business-card') {
       router.push('/business-card');
       return;

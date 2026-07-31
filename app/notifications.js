@@ -2,31 +2,36 @@ import { useCallback, useRef, useState } from 'react';
 import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
+import { Avatar } from '../src/components/Avatar.js';
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from '../src/api/index.js';
-import { TYPE_LABELS } from '../src/components/ReminderRow.js';
 import { parseServerDate, formatClockTime } from '../src/utils/date.js';
-import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
+import { colors, radius, spacing, typography } from '../src/theme.js';
 
 const TABS = [
   { key: 'all', label: 'All' },
-  { key: 'reminder', label: 'Reminders' },
+  { key: 'sent', label: 'Sent Reminders' },
+  { key: 'received', label: 'Received Reminders' },
 ];
-
-// Falls back to a generic bell whenever a notification doesn't carry the
-// underlying reminder's specific type (e.g. non-reminder notifications, or
-// older rows from before this field existed) - same push payload shape
-// _layout.js already trusts for its own notification-tap routing.
-const iconFor = (item) => {
-  const reminderType = item.data?.reminderType;
-  if (reminderType && reminderTypeStyles[reminderType]) return reminderTypeStyles[reminderType];
-  return { icon: 'bell-outline', color: colors.primary, bg: colors.primaryLight };
-};
 
 const formatTime = (value) => {
   const d = parseServerDate(value);
   return d ? formatClockTime(d) : '';
+};
+
+// The underlying reminder's own scheduled date/time (see the join in
+// notifications.service.js's listNotifications) - distinct from
+// item.created_at, which is when the notification itself landed.
+const formatReminderDateTime = (item) => {
+  if (!item.reminder_date) return '';
+  const [y, m, d] = String(item.reminder_date).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dateStr = new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  if (!item.reminder_time) return dateStr;
+  const [h, mi] = String(item.reminder_time).slice(0, 5).split(':').map(Number);
+  const t = new Date();
+  t.setHours(h, mi, 0, 0);
+  return `${dateStr} • ${formatClockTime(t)}`;
 };
 
 const groupLabel = (value) => {
@@ -46,7 +51,7 @@ export default function Notifications() {
   const router = useRouter();
   const [tab, setTab] = useState('all');
   const [items, setItems] = useState([]);
-  const [counts, setCounts] = useState({ all: null, reminder: null });
+  const [counts, setCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -92,15 +97,17 @@ export default function Notifications() {
   useFocusEffect(
     useCallback(() => {
       load(tab);
-      // The pill for the tab that *isn't* active also needs a real count -
-      // a cheap 1-item fetch just to read its `total`, not stored in `items`.
-      const otherTab = tab === 'all' ? 'reminder' : 'all';
-      listNotifications(otherTab === 'all' ? undefined : otherTab, 1, 1)
-        .then((data) => {
-          const total = Array.isArray(data) ? data.length : data?.total ?? data?.items?.length ?? 0;
-          setCounts((prev) => ({ ...prev, [otherTab]: total }));
-        })
-        .catch(() => {});
+      // Every tab's own pill count, not just the active one - shows all
+      // four at once. A cheap 1-item fetch per tab just to read its
+      // `total`, not stored in `items`.
+      TABS.filter((t) => t.key !== tab).forEach((t) => {
+        listNotifications(t.key === 'all' ? undefined : t.key, 1, 1)
+          .then((data) => {
+            const total = Array.isArray(data) ? data.length : data?.total ?? data?.items?.length ?? 0;
+            setCounts((prev) => ({ ...prev, [t.key]: total }));
+          })
+          .catch(() => {});
+      });
     }, [load, tab])
   );
 
@@ -115,6 +122,21 @@ export default function Notifications() {
     if (!item.is_read) {
       setItems((prev) => prev.map((n) => (n.id === item.id ? { ...n, is_read: true } : n)));
       markNotificationRead(item.id).catch(() => {});
+    }
+    // Routes to the same reminder screens the app already has - each of
+    // those already shows a read-only detail card to anyone who isn't its
+    // owner/manager (see app/reminders/[type].js and
+    // app/business-notes/[id].js), so a tap here lands on that card
+    // automatically instead of needing its own separate detail screen.
+    if (item.type !== 'reminder' || !item.reference_id) return;
+    if (item.reminder_group_id) {
+      router.push(`/group-reminders/${item.reference_id}`);
+    } else if (item.reminder_project_id) {
+      router.push(`/tasks/${item.reference_id}`);
+    } else if (item.reminder_type === 'note') {
+      router.push(`/business-notes/${item.reference_id}`);
+    } else if (item.reminder_type) {
+      router.push({ pathname: `/reminders/${item.reminder_type}`, params: { id: item.reference_id } });
     }
   };
 
@@ -178,32 +200,26 @@ export default function Notifications() {
           </View>
         )}
         renderItem={({ item }) => {
-          const icon = iconFor(item);
-          const typeLabel = TYPE_LABELS[item.data?.reminderType];
           const isRead = !!item.is_read;
+          const dateTimeText = formatReminderDateTime(item);
           return (
             <Pressable style={styles.row} onPress={() => handlePress(item)}>
-              {!isRead ? <View style={styles.rowUnreadDot} /> : null}
-              <View style={[styles.iconWrap, { backgroundColor: icon.bg }]}>
-                <MaterialCommunityIcons name={icon.icon} size={20} color={icon.color} />
-              </View>
+              <Avatar name={item.from_name || item.title} size={44} />
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-                {item.body ? <Text style={styles.rowSubtitle} numberOfLines={1}>{item.body}</Text> : null}
-                {typeLabel ? (
-                  <View style={[styles.typeTag, { backgroundColor: icon.bg }]}>
-                    <MaterialCommunityIcons name={icon.icon} size={11} color={icon.color} />
-                    <Text style={[styles.typeTagText, { color: icon.color }]}>{typeLabel}</Text>
+                {item.from_name ? <Text style={styles.rowFrom} numberOfLines={1}>From: {item.from_name}</Text> : null}
+                {dateTimeText ? (
+                  <View style={styles.rowDateRow}>
+                    <Ionicons name="calendar-outline" size={12} color={colors.textMuted} />
+                    <Text style={styles.rowDateText}>{dateTimeText}</Text>
                   </View>
+                ) : item.body ? (
+                  <Text style={styles.rowSubtitle} numberOfLines={1}>{item.body}</Text>
                 ) : null}
               </View>
               <View style={styles.rowMeta}>
                 <Text style={styles.rowTime}>{formatTime(item.created_at)}</Text>
-                {isRead ? (
-                  <Ionicons name="checkmark-circle" size={18} color={colors.textMuted} />
-                ) : (
-                  <View style={styles.unreadDot} />
-                )}
+                {!isRead ? <View style={styles.unreadDot} /> : null}
               </View>
             </Pressable>
           );
@@ -234,8 +250,10 @@ const styles = StyleSheet.create({
   },
   tabRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
+    gap: spacing.sm,
   },
   tab: {
     flexDirection: 'row',
@@ -245,7 +263,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
     backgroundColor: colors.card,
-    marginRight: spacing.sm,
   },
   tabActive: {
     backgroundColor: colors.primary,
@@ -305,21 +322,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
-  },
-  rowUnreadDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: colors.primary,
-    marginRight: spacing.sm,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
+    gap: spacing.md,
   },
   rowBody: {
     flex: 1,
@@ -328,23 +331,22 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: '600',
   },
+  rowFrom: {
+    ...typography.caption,
+    marginTop: 1,
+  },
   rowSubtitle: {
     ...typography.caption,
     marginTop: 2,
   },
-  typeTag: {
+  rowDateRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
     gap: 4,
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
+    marginTop: 2,
   },
-  typeTagText: {
-    fontSize: 11,
-    fontWeight: '600',
+  rowDateText: {
+    ...typography.caption,
   },
   rowMeta: {
     alignItems: 'flex-end',

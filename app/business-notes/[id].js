@@ -18,9 +18,38 @@ import {
 } from '../../src/api/index.js';
 import { useAuth } from '../../src/context/AuthContext.js';
 import { resyncLocalReminders } from '../../src/utils/localReminders.js';
+import { formatClockTime } from '../../src/utils/date.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../../src/theme.js';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const formatMsgTime = (value) => {
+  if (!value) return '';
+  const [h, m] = value.slice(0, 5).split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return formatClockTime(d);
+};
+
+const formatMsgDate = (value) => {
+  if (!value) return '';
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return value;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+// One labeled row inside the message/people cards below.
+const InfoRow = ({ icon, label, value, last }) => (
+  <View style={[styles.infoRow, last && styles.infoRowLast]}>
+    <View style={styles.infoIconWrap}>
+      <Ionicons name={icon} size={16} color={colors.primary} />
+    </View>
+    <View style={styles.infoText}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  </View>
+);
 
 export default function BusinessNoteDetail() {
   const router = useRouter();
@@ -187,19 +216,35 @@ export default function BusinessNoteDetail() {
           </>
         ) : (
           <>
-            <View style={styles.readOnlyField}>
-              <Text style={styles.readOnlyLabel}>Heading</Text>
-              <Text style={styles.readOnlyValue}>{title}</Text>
+            <View style={styles.reminderBanner}>
+              <Ionicons name="lock-closed-outline" size={16} color={colors.primaryDark} />
+              <Text style={styles.reminderBannerText}>This is a reminder message. You'll get notified when it's time.</Text>
             </View>
-            {message ? (
-              <View style={styles.readOnlyField}>
-                <Text style={styles.readOnlyLabel}>Description</Text>
-                <Text style={styles.readOnlyValue}>{message}</Text>
+
+            <View style={styles.messageBubble}>
+              <View style={styles.messageBubbleHeader}>
+                <View style={styles.messageBubbleIconWrap}>
+                  <Ionicons name="chatbubble" size={14} color={colors.white} />
+                </View>
+                <Text style={styles.messageBubbleHeaderText}>Reminder</Text>
               </View>
-            ) : null}
-            <View style={styles.readOnlyField}>
-              <Text style={styles.readOnlyLabel}>When</Text>
-              <Text style={styles.readOnlyValue}>{date}{time ? ` at ${time}` : ''}</Text>
+              <Text style={styles.messageBubbleTitle}>{title}</Text>
+              {message ? <Text style={styles.messageBubbleBody}>{message}</Text> : null}
+
+              <View style={styles.messageDivider} />
+
+              <InfoRow icon="calendar-outline" label="Date" value={formatMsgDate(date)} />
+              <InfoRow icon="time-outline" label="Time" value={time ? formatMsgTime(time) : 'Any time'} last={!message} />
+            </View>
+
+            <View style={styles.peopleCard}>
+              <InfoRow icon="person-outline" label="Shared by" value={reminder?.creator_name || 'Someone'} />
+              <InfoRow
+                icon="people-outline"
+                label="Sent to"
+                value={recipients.length > 1 ? `You and ${recipients.length - 1} other${recipients.length - 1 > 1 ? 's' : ''}` : 'You'}
+                last
+              />
             </View>
           </>
         )}
@@ -251,19 +296,96 @@ const styles = StyleSheet.create({
   submit: {
     marginTop: spacing.md,
   },
-  readOnlyField: {
-    marginBottom: spacing.md,
-  },
-  readOnlyLabel: {
-    ...typography.bodyMuted,
-    marginBottom: spacing.xs,
-  },
-  readOnlyValue: {
-    ...typography.body,
-  },
   loadingText: {
     ...typography.bodyMuted,
     textAlign: 'center',
     marginTop: spacing.xl,
+  },
+  reminderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  reminderBannerText: {
+    ...typography.caption,
+    color: colors.primaryDark,
+    flex: 1,
+  },
+  messageBubble: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    borderTopLeftRadius: radius.sm,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  messageBubbleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  messageBubbleIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageBubbleHeaderText: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  messageBubbleTitle: {
+    ...typography.h3,
+  },
+  messageBubbleBody: {
+    ...typography.body,
+    marginTop: spacing.xs,
+  },
+  messageDivider: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginVertical: spacing.md,
+  },
+  peopleCard: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  infoRowLast: {
+    paddingBottom: 0,
+  },
+  infoIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoText: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  infoLabel: {
+    ...typography.caption,
+  },
+  infoValue: {
+    ...typography.body,
+    fontWeight: '600',
+    marginTop: 1,
   },
 });

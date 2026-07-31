@@ -1,13 +1,25 @@
 import { useCallback, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
 import { Header } from '../../src/components/Header.js';
 import { BottomNavBar } from '../../src/components/BottomNavBar.js';
+import { Avatar } from '../../src/components/Avatar.js';
 import { listReminders } from '../../src/api/index.js';
-import { colors, radius, reminderTypeStyles, spacing, typography } from '../../src/theme.js';
+import { formatClockTime } from '../../src/utils/date.js';
+import { colors, radius, spacing, typography } from '../../src/theme.js';
+
+// reminder_time is a bare "HH:mm:ss" (or null for an all-day message) -
+// falls back to the date so a chat-list row always has *something* on the
+// right, the way a real chat list never shows a blank timestamp.
+const formatRowMeta = (item) => {
+  if (!item.reminder_time) return item.reminder_date;
+  const [h, m] = item.reminder_time.slice(0, 5).split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return formatClockTime(d);
+};
 
 export default function BusinessNotesList() {
   const router = useRouter();
@@ -32,8 +44,6 @@ export default function BusinessNotesList() {
     }, [load])
   );
 
-  const typeStyle = reminderTypeStyles.note;
-
   return (
     <ScreenContainer edges={['top']} style={styles.container}>
       <Header title="" right={
@@ -52,16 +62,14 @@ export default function BusinessNotesList() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <Pressable style={styles.row} onPress={() => router.push(`/business-notes/${item.id}`)}>
-            <View style={[styles.iconWrap, { backgroundColor: typeStyle.bg }]}>
-              <MaterialCommunityIcons name={typeStyle.icon} size={22} color={typeStyle.color} />
-            </View>
+            <Avatar name={item.title} size={48} />
             <View style={styles.rowBody}>
               <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-              <Text style={styles.rowSubtitle}>
-                {item.reminder_date}{item.reminder_time ? ` · ${item.reminder_time.slice(0, 5)}` : ''}
+              <Text style={styles.rowSubtitle} numberOfLines={1}>
+                {item.description || 'Tap to view this reminder message'}
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+            <Text style={styles.rowMeta}>{formatRowMeta(item)}</Text>
           </Pressable>
         )}
         ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No messages yet. Tap + to add one.</Text> : null}
@@ -100,19 +108,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.sm,
   },
-  iconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   rowBody: {
     flex: 1,
   },
   rowTitle: {
     ...typography.body,
     fontWeight: '600',
+  },
+  rowMeta: {
+    ...typography.caption,
+    alignSelf: 'flex-start',
   },
   rowSubtitle: {
     ...typography.caption,

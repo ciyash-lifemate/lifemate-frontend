@@ -33,7 +33,19 @@
       [
         "expo-notifications",
         {
-          "sounds": ["./assets/reminder_alert.wav"]
+          "sounds": [
+            "./assets/reminder_alert.wav",
+            "./assets/sounds/sound_bell.mp3",
+            "./assets/sounds/sound_bells.mp3",
+            "./assets/sounds/sound_pop.mp3",
+            "./assets/sounds/sound_confirm.mp3",
+            "./assets/sounds/sound_positive.mp3",
+            "./assets/sounds/sound_doorbell.mp3",
+            "./assets/sounds/sound_digital.mp3",
+            "./assets/sounds/sound_magic.mp3",
+            "./assets/sounds/sound_clear.mp3",
+            "./assets/sounds/sound_urgent.mp3"
+          ]
         }
       ],
       "expo-audio",

@@ -9,15 +9,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Android to create a fresh channel with the current config instead of
 // reusing whatever "default" already locked in on-device.
 //
-// Two channels, not one: Android can only ever play whichever sound a
-// channel was created with, so offering a choice between two sounds means
-// two channels that both always exist - the user's pick (see settings
-// module) just decides which one a given notification is sent through, in
-// src/utils/localReminders.js (local) and push.js on the backend (server).
-export const CHANNEL_IDS = {
-  default: 'reminders-v3-default',
-  alert: 'reminders-v3-alert',
-};
+// One channel per sound, not one shared channel: Android can only ever play
+// whichever sound a channel was created with, so offering a choice between
+// several sounds means that many channels, all always created - the user's
+// pick (see settings module) just decides which one a given notification is
+// sent through, in src/utils/localReminders.js (local) and push.js on the
+// backend (server, must stay in sync with channelIdFor there).
+//
+// 'default'/'alert' keep their original v3 channel ids from before this
+// picker grew past two options - an already-installed app's device has
+// already locked those in, so renaming them would silently orphan its
+// existing channels instead of just adding to them. Everything added after
+// that lives under a new v4 id instead.
+export const SOUND_CATALOG = [
+  { id: 'default', label: 'Default', file: null },
+  { id: 'alert', label: 'Alert Tone', file: 'reminder_alert.wav' },
+  { id: 'bell', label: 'Bell', file: 'sound_bell.mp3' },
+  { id: 'bells', label: 'Happy Bells', file: 'sound_bells.mp3' },
+  { id: 'pop', label: 'Pop', file: 'sound_pop.mp3' },
+  { id: 'confirm', label: 'Confirm', file: 'sound_confirm.mp3' },
+  { id: 'positive', label: 'Positive', file: 'sound_positive.mp3' },
+  { id: 'doorbell', label: 'Doorbell', file: 'sound_doorbell.mp3' },
+  { id: 'digital', label: 'Digital', file: 'sound_digital.mp3' },
+  { id: 'magic', label: 'Magic Ring', file: 'sound_magic.mp3' },
+  { id: 'clear', label: 'Clear Tone', file: 'sound_clear.mp3' },
+  { id: 'urgent', label: 'Urgent', file: 'sound_urgent.mp3' },
+];
+
+export const CHANNEL_IDS = Object.fromEntries(
+  SOUND_CATALOG.map(({ id }) => [
+    id,
+    id === 'default' || id === 'alert' ? `reminders-v3-${id}` : `reminders-v4-${id}`,
+  ])
+);
 
 const SOUND_PREF_KEY = 'notification_sound_pref';
 
@@ -30,7 +54,7 @@ export const setPreferredSound = (value) => AsyncStorage.setItem(SOUND_PREF_KEY,
 export const getPreferredChannelId = async () => {
   try {
     const pref = await AsyncStorage.getItem(SOUND_PREF_KEY);
-    return pref === 'alert' ? CHANNEL_IDS.alert : CHANNEL_IDS.default;
+    return CHANNEL_IDS[pref] || CHANNEL_IDS.default;
   } catch {
     return CHANNEL_IDS.default;
   }
@@ -89,21 +113,17 @@ export const setupNotifications = async () => {
   if (!Notifications) return false;
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync(CHANNEL_IDS.default, {
-        name: 'Reminders',
-        importance: Notifications.AndroidImportance.MAX,
-        sound: 'default',
-      });
-      // Filename must match what's bundled via the expo-notifications config
-      // plugin in app.json ("sounds": ["./assets/reminder_alert.wav"]) -
-      // underscore, not a hyphen: Android rejects a raw resource name with a
-      // dash in it (learned the hard way, see the EAS prebuild failure this
-      // filename caused).
-      await Notifications.setNotificationChannelAsync(CHANNEL_IDS.alert, {
-        name: 'Reminders (Alert tone)',
-        importance: Notifications.AndroidImportance.MAX,
-        sound: 'reminder_alert.wav',
-      });
+      // Filenames must match what's bundled via the expo-notifications
+      // config plugin in app.json's "sounds" array - underscore, not a
+      // hyphen: Android rejects a raw resource name with a dash in it
+      // (learned the hard way, see the EAS prebuild failure that caused).
+      for (const { id, label, file } of SOUND_CATALOG) {
+        await Notifications.setNotificationChannelAsync(CHANNEL_IDS[id], {
+          name: id === 'default' ? 'Reminders' : `Reminders (${label})`,
+          importance: Notifications.AndroidImportance.MAX,
+          sound: file || 'default',
+        });
+      }
     }
     const current = await Notifications.getPermissionsAsync();
     if (current.status === 'granted') return true;

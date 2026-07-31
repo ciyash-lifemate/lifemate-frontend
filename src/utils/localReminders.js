@@ -176,54 +176,77 @@ export const cancelAllLocalReminders = async () => {
 // the creator's self-reminder toggle); folding local scheduling into that
 // needs to also honor creator_self_reminder, which is a separate follow-up
 // rather than being bundled in here.
+// Guards against two overlapping calls both loading the same map before
+// either has saved it back - this is called from several places with no
+// coordination between them (LocalReminderSync on every AppState 'active',
+// the notification-received handler in app/_layout.js, and every reminder
+// save/delete screen). Without this, two calls landing close together could
+// each see the same reminder as "not yet scheduled under a known id" and
+// both call scheduleNotificationAsync for it - that's two real, independent
+// OS-level alarms, and only one of them ends up recorded in the map (saved
+// by whichever call finishes last), so the other becomes untracked and
+// un-cancellable. Both alarms still fire at the due time, which is what
+// showed up as the same reminder alerting more than once.
+let inFlightResync = null;
+
 export const resyncLocalReminders = async (userId) => {
-  const Notifications = getNotifications();
-  if (!Notifications) return;
+  if (inFlightResync) return inFlightResync;
 
-  let items;
-  try {
-    // 100 is the API's max pageSize (see reminders.validation.js) - the
-    // largest single page it allows.
-    ({ items } = await listReminders({ pageSize: 100 }));
-  } catch {
-    return; // offline or logged out - leave whatever's already scheduled alone
-  }
+  inFlightResync = (async () => {
+    const Notifications = getNotifications();
+    if (!Notifications) return;
 
-  const isOwner = (r) => String(r.user_id) === String(userId);
-  const active = (items || []).filter(
-    (r) =>
-      !r.group_id &&
-      !r.is_completed &&
-      !(r.project_id && isOwner(r)) && // delegated away - the assignee gets the alarm, not me
-      !(isOwner(r) && r.self_reminder === false) // I explicitly opted out of my own copy
-  );
-  const map = await loadMap();
-  const keepIds = new Set();
-  const channelId = await getPreferredChannelId();
-
-  for (const reminder of active) {
-    const trigger = buildTrigger(reminder, Notifications, channelId);
-    if (!trigger) continue;
-    const key = String(reminder.id);
-    keepIds.add(key);
-    if (map[key]) {
-      await Notifications.cancelScheduledNotificationAsync(map[key]).catch(() => {});
-    }
+    let items;
     try {
-      map[key] = await Notifications.scheduleNotificationAsync({ content: buildContent(reminder), trigger });
+      // 100 is the API's max pageSize (see reminders.validation.js) - the
+      // largest single page it allows.
+      ({ items } = await listReminders({ pageSize: 100 }));
     } catch {
-      delete map[key];
+      return; // offline or logged out - leave whatever's already scheduled alone
     }
-  }
 
-  await Promise.all(
-    Object.keys(map)
-      .filter((key) => !keepIds.has(key))
-      .map(async (key) => {
+    const isOwner = (r) => String(r.user_id) === String(userId);
+    const active = (items || []).filter(
+      (r) =>
+        !r.group_id &&
+        !r.is_completed &&
+        !(r.project_id && isOwner(r)) && // delegated away - the assignee gets the alarm, not me
+        !(isOwner(r) && r.self_reminder === false) // I explicitly opted out of my own copy
+    );
+    const map = await loadMap();
+    const keepIds = new Set();
+    const channelId = await getPreferredChannelId();
+
+    for (const reminder of active) {
+      const trigger = buildTrigger(reminder, Notifications, channelId);
+      if (!trigger) continue;
+      const key = String(reminder.id);
+      keepIds.add(key);
+      if (map[key]) {
         await Notifications.cancelScheduledNotificationAsync(map[key]).catch(() => {});
+      }
+      try {
+        map[key] = await Notifications.scheduleNotificationAsync({ content: buildContent(reminder), trigger });
+      } catch {
         delete map[key];
-      })
-  );
+      }
+    }
 
-  await saveMap(map);
+    await Promise.all(
+      Object.keys(map)
+        .filter((key) => !keepIds.has(key))
+        .map(async (key) => {
+          await Notifications.cancelScheduledNotificationAsync(map[key]).catch(() => {});
+          delete map[key];
+        })
+    );
+
+    await saveMap(map);
+  })();
+
+  try {
+    await inFlightResync;
+  } finally {
+    inFlightResync = null;
+  }
 };

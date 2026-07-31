@@ -79,7 +79,7 @@ const UPCOMING_LIMIT = 3;
 // Home is a teaser, not the full agenda - cap the visible list so a busy day
 // (10-15 reminders) doesn't turn the whole screen into one long scroll.
 // "View all" (-> Calendar, already on today) is where the rest live.
-const HOME_REMINDERS_LIMIT = 4;
+const HOME_REMINDERS_LIMIT = 3;
 
 // reminder_time comes back as a bare "HH:mm:ss" - anchor it to an arbitrary
 // date just to get a parseable Date for formatClockTime (same trick as
