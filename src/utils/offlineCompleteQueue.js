@@ -24,25 +24,38 @@ export const queueOfflineComplete = async (id, isCompleted) => {
   await saveQueue(queue);
 };
 
+// Same overlapping-callers guard as syncQueuedReminders - see there for why.
+let inFlightSync = null;
+
 // Replays every queued completion toggle against the backend. A queued
 // entry that fails with a network error is left for the next sync attempt;
 // one the server itself rejects (e.g. the reminder was deleted meanwhile)
 // is dropped, since retrying it can never succeed.
 export const syncQueuedCompletions = async () => {
-  const queue = await loadQueue();
-  const ids = Object.keys(queue);
-  if (!ids.length) return;
+  if (inFlightSync) return inFlightSync;
 
-  const remaining = { ...queue };
-  for (const id of ids) {
-    try {
-      await completeReminder(id, queue[id]);
-      delete remaining[id];
-    } catch (err) {
-      if (err?.response) delete remaining[id];
+  inFlightSync = (async () => {
+    const queue = await loadQueue();
+    const ids = Object.keys(queue);
+    if (!ids.length) return;
+
+    const remaining = { ...queue };
+    for (const id of ids) {
+      try {
+        await completeReminder(id, queue[id]);
+        delete remaining[id];
+      } catch (err) {
+        if (err?.response) delete remaining[id];
+      }
     }
+    await saveQueue(remaining);
+  })();
+
+  try {
+    await inFlightSync;
+  } finally {
+    inFlightSync = null;
   }
-  await saveQueue(remaining);
 };
 
 export const clearOfflineCompleteQueue = () => AsyncStorage.removeItem(QUEUE_KEY).catch(() => {});

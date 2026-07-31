@@ -47,6 +47,17 @@ export const queueOfflineReminder = async (payload) => {
   return tempId;
 };
 
+// Guards against two overlapping calls both reading the same queue before
+// either has saved it back - LocalReminderSync fires this on every AppState
+// 'active' transition, and without this a second transition landing while
+// the first sync is still mid-flight (several did in a row, back when a
+// notification-permission dialog loop kept flipping AppState - see
+// notifications.js) re-read the *same* still-queued item and posted a
+// second createReminder for it, producing a duplicate reminder (and a
+// duplicate notification) for one offline save. Concurrent callers now all
+// just await the one in-progress sync instead of each starting their own.
+let inFlightSync = null;
+
 // Replays every queued offline reminder against the backend, in order.
 // Stops at the first network failure (assume still offline, leave the rest
 // queued for next time) but drops requests the backend itself rejects
@@ -54,32 +65,42 @@ export const queueOfflineReminder = async (payload) => {
 // can never succeed. Caller is responsible for calling resyncLocalReminders
 // afterwards to pick up the real server ids for whatever synced.
 export const syncQueuedReminders = async (userId) => {
-  const queue = await loadQueue();
-  if (!queue.length) return;
+  if (inFlightSync) return inFlightSync;
 
-  const remaining = [];
-  let stillOffline = false;
+  inFlightSync = (async () => {
+    const queue = await loadQueue();
+    if (!queue.length) return;
 
-  for (const item of queue) {
-    if (stillOffline) {
-      remaining.push(item);
-      continue;
-    }
-    try {
-      await createReminder(item.payload);
-      await cancelDraftReminder(item.tempId);
-    } catch (err) {
-      if (err?.response) {
-        await cancelDraftReminder(item.tempId);
-        if (__DEV__) console.warn('[offline-queue] dropped rejected reminder:', getErrorMessage(err));
-      } else {
-        stillOffline = true;
+    const remaining = [];
+    let stillOffline = false;
+
+    for (const item of queue) {
+      if (stillOffline) {
         remaining.push(item);
+        continue;
+      }
+      try {
+        await createReminder(item.payload);
+        await cancelDraftReminder(item.tempId);
+      } catch (err) {
+        if (err?.response) {
+          await cancelDraftReminder(item.tempId);
+          if (__DEV__) console.warn('[offline-queue] dropped rejected reminder:', getErrorMessage(err));
+        } else {
+          stillOffline = true;
+          remaining.push(item);
+        }
       }
     }
-  }
 
-  await saveQueue(remaining);
+    await saveQueue(remaining);
+  })();
+
+  try {
+    await inFlightSync;
+  } finally {
+    inFlightSync = null;
+  }
 };
 
 export const clearOfflineReminderQueue = () => AsyncStorage.removeItem(QUEUE_KEY).catch(() => {});

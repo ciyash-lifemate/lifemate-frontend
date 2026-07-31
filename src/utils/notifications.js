@@ -69,6 +69,20 @@ const getNotifications = () => {
   return cachedModule;
 };
 
+// Guards requestPermissionsAsync so it only ever shows the OS prompt once
+// per app session (granted or not), no matter how many times
+// setupNotifications() itself is called. LocalReminderSync calls this on
+// every AppState 'active' transition - on a fresh install, before the
+// prompt has been answered, showing that system dialog itself pauses/
+// resumes the host Activity, which flips AppState back to 'active' and
+// re-triggered this same call, which requested permission (and so showed
+// the dialog) again - a tight pause/resume/re-request loop that made the
+// screen flicker and eventually got the app killed. Deliberately never
+// reset back to false (not even in a `finally`) - once asked, later calls
+// only ever re-check the already-answered status via getPermissionsAsync()
+// (a plain read, no dialog), they don't ask again this session.
+let permissionRequested = false;
+
 // Call once when the app starts. Safe to call more than once.
 export const setupNotifications = async () => {
   const Notifications = getNotifications();
@@ -91,6 +105,10 @@ export const setupNotifications = async () => {
         sound: 'reminder_alert.wav',
       });
     }
+    const current = await Notifications.getPermissionsAsync();
+    if (current.status === 'granted') return true;
+    if (permissionRequested) return false;
+    permissionRequested = true;
     const { status } = await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowBadge: true, allowSound: true },
     });
