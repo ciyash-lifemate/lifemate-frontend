@@ -80,7 +80,7 @@ export default function AiChat() {
             <MaterialCommunityIcons name="robot-happy-outline" size={22} color={colors.primary} />
           </View>
           <View>
-            <Text style={styles.headerTitle}>LifeMate AI</Text>
+            <Text style={styles.headerTitle}>LifeMate</Text>
             <Text style={styles.headerStatus}>Online</Text>
           </View>
         </View>

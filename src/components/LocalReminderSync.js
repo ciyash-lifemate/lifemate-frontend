@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { setupNotifications } from '../utils/notifications.js';
 import { resyncLocalReminders } from '../utils/localReminders.js';
+import { syncQueuedReminders } from '../utils/offlineReminderQueue.js';
+import { syncQueuedCompletions } from '../utils/offlineCompleteQueue.js';
 import { useAuth } from '../context/AuthContext.js';
 
 // Keeps the on-device local notification schedule (see
@@ -24,6 +26,11 @@ export const LocalReminderSync = () => {
       // permission has been requested even if this mounts before
       // NotificationTapRouter's own setup call resolves.
       await setupNotifications();
+      // Replay any reminders that were created while offline before
+      // re-deriving the schedule, so a just-synced reminder ends up keyed
+      // under its real server id instead of lingering as a draft.
+      await syncQueuedReminders(user.id);
+      await syncQueuedCompletions();
       await resyncLocalReminders(user.id);
     };
 

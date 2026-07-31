@@ -1,5 +1,6 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Android notification channels are immutable once created - if this app's
 // channel was ever created before `sound` was set here (an earlier test
@@ -7,7 +8,33 @@ import { Platform } from 'react-native';
 // to its sound/importance are silently ignored. Bumping the id forces
 // Android to create a fresh channel with the current config instead of
 // reusing whatever "default" already locked in on-device.
-const CHANNEL_ID = 'reminders-v2';
+//
+// Two channels, not one: Android can only ever play whichever sound a
+// channel was created with, so offering a choice between two sounds means
+// two channels that both always exist - the user's pick (see settings
+// module) just decides which one a given notification is sent through, in
+// src/utils/localReminders.js (local) and push.js on the backend (server).
+export const CHANNEL_IDS = {
+  default: 'reminders-v3-default',
+  alert: 'reminders-v3-alert',
+};
+
+const SOUND_PREF_KEY = 'notification_sound_pref';
+
+// Cached locally so scheduling a local notification never has to make a
+// network round-trip just to know which channel to use - notification-
+// settings.js writes this the moment the user changes their pick, and the
+// startup settings fetch (see app/notification-settings.js) seeds it too.
+export const setPreferredSound = (value) => AsyncStorage.setItem(SOUND_PREF_KEY, value).catch(() => {});
+
+export const getPreferredChannelId = async () => {
+  try {
+    const pref = await AsyncStorage.getItem(SOUND_PREF_KEY);
+    return pref === 'alert' ? CHANNEL_IDS.alert : CHANNEL_IDS.default;
+  } catch {
+    return CHANNEL_IDS.default;
+  }
+};
 
 // Since SDK 53, expo-notifications throws the moment it's *imported* when
 // running inside Expo Go on Android (a side-effect file it re-exports
@@ -48,10 +75,20 @@ export const setupNotifications = async () => {
   if (!Notifications) return false;
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-        name: 'Default',
+      await Notifications.setNotificationChannelAsync(CHANNEL_IDS.default, {
+        name: 'Reminders',
         importance: Notifications.AndroidImportance.MAX,
         sound: 'default',
+      });
+      // Filename must match what's bundled via the expo-notifications config
+      // plugin in app.json ("sounds": ["./assets/reminder_alert.wav"]) -
+      // underscore, not a hyphen: Android rejects a raw resource name with a
+      // dash in it (learned the hard way, see the EAS prebuild failure this
+      // filename caused).
+      await Notifications.setNotificationChannelAsync(CHANNEL_IDS.alert, {
+        name: 'Reminders (Alert tone)',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'reminder_alert.wav',
       });
     }
     const { status } = await Notifications.requestPermissionsAsync({

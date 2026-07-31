@@ -112,7 +112,7 @@ export default function ReminderGroupDetail() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.heading}>New Group</Text>
           <TextField label="Group Name" placeholder="Follow-up team" value={name} onChangeText={setName} voiceInput />
-          <RecipientPicker label="Add members" value={members} onChange={setMembers} />
+          <RecipientPicker label="Add members" value={members} onChange={setMembers} maxRecipients={Infinity} />
           <Button title="Create Group" onPress={handleCreate} loading={loading} style={styles.submit} />
         </ScrollView>
       </ScreenContainer>

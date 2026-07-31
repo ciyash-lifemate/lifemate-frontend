@@ -94,7 +94,7 @@ export default function ReminderGroupMembers() {
         <Text style={styles.heading}>Manage Members</Text>
         <Text style={styles.subheading}>{group.name}</Text>
 
-        <RecipientPicker label="Members" value={group.members} onChange={handlePickerChange} />
+        <RecipientPicker label="Members" value={group.members} onChange={handlePickerChange} maxRecipients={Infinity} />
 
         <Text style={styles.sectionTitle}>Manage access</Text>
         <Text style={styles.sectionHint}>

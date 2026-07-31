@@ -13,15 +13,35 @@ const formatTime = (value) => {
   return Number.isNaN(d.getTime()) ? value : formatClockTime(d);
 };
 
+// Exported for reuse anywhere else a reminder type needs a display label
+// (e.g. the notification list's per-type tag).
+export const TYPE_LABELS = {
+  medicine: 'Medicine',
+  birthday: 'Birthday',
+  anniversary: 'Anniversary',
+  note: 'Message',
+  task: 'Task',
+  custom: 'Other',
+  recharge: 'Recharge',
+  event: 'Event',
+  alarm: 'Alarm',
+  company: 'Company',
+};
+
 // `onPress` opens a read-only detail card (ReminderDetailModal) rather than
 // jumping straight into editing - `onEdit`/`onDelete` back a single "..."
 // icon instead of separate buttons, so the row doesn't get cluttered with
 // icons for every possible action.
-export const ReminderRow = ({ reminder, onToggle, onPress, onEdit, onDelete }) => {
+// `accentBorder` adds a colored left edge matching the type's accent color -
+// opt-in (Calendar's day list wants it) rather than the default everywhere
+// ReminderRow is used (Home's list doesn't).
+export const ReminderRow = ({ reminder, onToggle, onPress, onEdit, onDelete, accentBorder }) => {
   const type = reminderTypeStyles[reminder.type] || reminderTypeStyles.custom;
   const title = reminder.title || 'Reminder';
   const isCompleted = !!reminder.is_completed;
-  const subtitle = reminder.reminder_time ? formatTime(reminder.reminder_time) : reminder.reminder_date;
+  const typeLabel = TYPE_LABELS[reminder.type];
+  const when = reminder.reminder_time ? formatTime(reminder.reminder_time) : reminder.reminder_date;
+  const subtitle = when && typeLabel ? `${when} • ${typeLabel}` : when || typeLabel;
   const hasOptions = !!(onEdit || onDelete);
 
   const handleOptions = () => {
@@ -33,7 +53,10 @@ export const ReminderRow = ({ reminder, onToggle, onPress, onEdit, onDelete }) =
   };
 
   return (
-    <Pressable style={styles.row} onPress={onPress && (() => onPress(reminder))}>
+    <Pressable
+      style={[styles.row, accentBorder && { borderLeftWidth: 4, borderLeftColor: type.color }]}
+      onPress={onPress && (() => onPress(reminder))}
+    >
       <View style={[styles.iconWrap, { backgroundColor: type.bg }]}>
         <MaterialCommunityIcons name={type.icon} size={20} color={type.color} />
       </View>

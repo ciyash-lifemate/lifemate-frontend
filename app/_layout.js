@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import * as Contacts from 'expo-contacts/legacy';
 import { AuthProvider, useAuth } from '../src/context/AuthContext.js';
 import { ReminderAlertWatcher } from '../src/components/ReminderAlertWatcher.js';
 import { LocalReminderSync } from '../src/components/LocalReminderSync.js';
@@ -13,6 +14,7 @@ import {
 } from '../src/utils/notifications.js';
 import { speakReminder } from '../src/utils/speech.js';
 import { openWhatsAppWish, buildWishMessage } from '../src/utils/whatsapp.js';
+import { resyncLocalReminders } from '../src/utils/localReminders.js';
 
 // Navigates to the right screen when the user taps a push/local
 // notification. The backend's reminder scheduler sends { type: 'reminder',
@@ -66,10 +68,16 @@ const SOUND_APPROX_MS = 1500;
 // title in the push payload (see notifyReminderDue) - using it instead of
 // content.title avoids reading out the emoji prefix (buildAlertCopy in
 // reminders.scheduler.js).
-const handleNotificationReceived = (data) => {
+const handleNotificationReceived = (userId) => (data) => {
   if (data?.type !== 'reminder') return;
   const text = data.voiceMessage || data.recipientName;
   if (text) setTimeout(() => speakReminder(text), SOUND_APPROX_MS);
+  // A shared/assigned reminder just pushed in while the app was open -
+  // resync the on-device schedule right away instead of waiting for the
+  // next foreground transition (LocalReminderSync only re-derives it on an
+  // inactive->active AppState change, which this isn't), so it's already
+  // scheduled locally even if the recipient goes offline before it's due.
+  if (userId) resyncLocalReminders(userId).catch(() => {});
 };
 
 // Lives inside AuthProvider (unlike the rest of RootLayout) purely so it can
@@ -77,16 +85,29 @@ const handleNotificationReceived = (data) => {
 const NotificationTapRouter = () => {
   const router = useRouter();
   const { user } = useAuth();
+  // Asked once per signed-in session, not on every re-render this effect
+  // happens to run - requestPermissionsAsync() itself is already a no-op
+  // once answered (Android/iOS never re-prompt without the user going to
+  // Settings themselves), this ref just avoids firing it redundantly.
+  const contactsAskedRef = useRef(false);
 
   useEffect(() => {
     setupNotifications();
+    // Asked up front on first login rather than buried behind the Contact
+    // Sync screen's own "Sync Now" button - that screen (app/contacts/index.js)
+    // is unchanged otherwise; by the time someone opens it the OS prompt has
+    // usually already been answered one way or another.
+    if (user && !contactsAskedRef.current) {
+      contactsAskedRef.current = true;
+      Contacts.requestPermissionsAsync().catch(() => {});
+    }
     const unsubscribeTap = subscribeToNotificationTaps(handleNotificationTap(router, user?.name));
-    const unsubscribeReceived = subscribeToNotificationReceived(handleNotificationReceived);
+    const unsubscribeReceived = subscribeToNotificationReceived(handleNotificationReceived(user?.id));
     return () => {
       unsubscribeTap();
       unsubscribeReceived();
     };
-  }, [router, user?.name]);
+  }, [router, user, user?.name]);
 
   return null;
 };

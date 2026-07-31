@@ -41,7 +41,7 @@ const speakAfterSound = (audioPlayer, text) => {
 export const ReminderAlertWatcher = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const player = useAudioPlayer(require('../../assets/reminder-alert.wav'));
+  const player = useAudioPlayer(require('../../assets/reminder_alert.wav'));
   const alertedIdsRef = useRef(new Set());
   const lastDateRef = useRef(new Date().toDateString());
   const intervalRef = useRef(null);

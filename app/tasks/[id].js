@@ -23,7 +23,6 @@ import {
 } from '../../src/api/index.js';
 import { useAuth } from '../../src/context/AuthContext.js';
 import { resyncLocalReminders } from '../../src/utils/localReminders.js';
-import { openWhatsAppWish } from '../../src/utils/whatsapp.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../../src/theme.js';
 
 const REPEAT_OPTIONS = [
@@ -57,7 +56,6 @@ export default function TaskDetail() {
   const [time, setTime] = useState('');
   const [repeat, setRepeat] = useState('none');
   const [assignee, setAssignee] = useState(null);
-  const [mobile, setMobile] = useState('');
   const [reminder, setReminder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -80,7 +78,6 @@ export default function TaskDetail() {
         setTime((data.reminder_time || '').slice(0, 5));
         setRepeat(data.repeat_type || 'none');
         setAssignee(data.recipients?.[0] || null);
-        setMobile(data.recipient_mobile || '');
       } catch {
         Alert.alert('Could not load task', 'Please try again.');
       } finally {
@@ -143,7 +140,6 @@ export default function TaskDetail() {
       reminderDate: date,
       reminderTime: time,
       repeatType: repeat,
-      recipientMobile: mobile.trim() || undefined,
       recipientUserIds: assignee ? [assignee.id] : [],
       ...(isNew ? { projectId: projectIdParam || projectId } : {}),
     };
@@ -170,11 +166,6 @@ export default function TaskDetail() {
     } catch {
       // Best-effort - the share sheet itself already surfaces its own errors.
     }
-  };
-
-  const handleWhatsApp = () => {
-    if (!mobile.trim()) return;
-    openWhatsAppWish(mobile, buildShareMessage(title.trim(), description.trim(), date, time));
   };
 
   const handleToggleComplete = async () => {
@@ -284,23 +275,10 @@ export default function TaskDetail() {
 
             <AssigneePicker value={assignee} onChange={setAssignee} />
 
-            <TextField
-              label="Phone number (optional)"
-              placeholder="+91 98765 43210"
-              value={mobile}
-              onChangeText={setMobile}
-              keyboardType="phone-pad"
-            />
             <Text style={styles.shareHint}>
               Not on the app, or want to nudge them yourself too? Share the task details directly.
             </Text>
             <View style={styles.shareRow}>
-              {mobile.trim() ? (
-                <Pressable style={styles.whatsappBtn} onPress={handleWhatsApp}>
-                  <Ionicons name="logo-whatsapp" size={18} color={colors.success} />
-                  <Text style={styles.whatsappBtnText}>WhatsApp</Text>
-                </Pressable>
-              ) : null}
               <Pressable style={styles.shareBtn} onPress={handleShare}>
                 <Ionicons name="share-social-outline" size={18} color={colors.primary} />
                 <Text style={styles.shareBtnText}>Share…</Text>
@@ -375,22 +353,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginBottom: spacing.md,
-  },
-  whatsappBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.success,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm,
-  },
-  whatsappBtnText: {
-    ...typography.body,
-    color: colors.success,
-    fontWeight: '600',
   },
   shareBtn: {
     flex: 1,

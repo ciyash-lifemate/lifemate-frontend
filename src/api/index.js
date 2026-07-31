@@ -13,7 +13,11 @@ const defaultHost = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${defaultHost}:5000/api/v1/user`;
 console.log('[api] API_BASE_URL =', API_BASE_URL);
 
-export const client = axios.create({ baseURL: API_BASE_URL, timeout: 15000 });
+// 45s, not the usual 10-15s default - a free-tier Render backend sleeps
+// after inactivity and can take 30-60s to wake up on the first request
+// after a while, which a short timeout would kill mid-wake as a false
+// "Network error" before the server ever gets a chance to respond.
+export const client = axios.create({ baseURL: API_BASE_URL, timeout: 45000 });
 
 client.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -124,6 +128,30 @@ export const updateSettings = (payload) => unwrap(client.put('/settings', payloa
 
 export const getBusinessCard = () => unwrap(client.get('/business-card'));
 export const updateBusinessCard = (payload) => unwrap(client.put('/business-card', payload));
+
+// --- fitness ---
+
+export const getFitnessLog = (date) => unwrap(client.get(`/fitness/${date}`));
+export const saveFitnessLog = (date, payload) => unwrap(client.put(`/fitness/${date}`, payload));
+export const listFitnessDates = (from, to) => unwrap(client.get('/fitness/dates', { params: { from, to } }));
+
+// --- family sharing ---
+
+export const getFamilyGroup = () => unwrap(client.get('/family/group'));
+export const createFamilyGroup = (name) => unwrap(client.post('/family/group', { name }));
+export const updateFamilyGroup = (name) => unwrap(client.put('/family/group', { name }));
+export const leaveFamilyGroup = () => unwrap(client.post('/family/group/leave'));
+export const inviteFamilyMember = (mobile, permission) =>
+  unwrap(client.post('/family/members', { mobile, permission }));
+export const updateFamilyMemberPermission = (memberId, permission) =>
+  unwrap(client.put(`/family/members/${memberId}`, { permission }));
+export const removeFamilyMember = (memberId) => unwrap(client.delete(`/family/members/${memberId}`));
+export const listSharedReminders = (filter) => unwrap(client.get('/family/reminders', { params: { filter } }));
+
+// --- contacts ---
+
+export const matchContacts = (phones) => unwrap(client.post('/contacts/match', { phones }));
+export const sendNudge = (userId) => unwrap(client.post(`/contacts/${userId}/nudge`));
 
 // --- banners ---
 

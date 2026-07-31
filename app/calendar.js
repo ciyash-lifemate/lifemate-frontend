@@ -4,16 +4,51 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { BottomNavBar } from '../src/components/BottomNavBar.js';
-import { ReminderRow } from '../src/components/ReminderRow.js';
+import { ReminderRow, TYPE_LABELS } from '../src/components/ReminderRow.js';
 import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { listCalendarReminders, completeReminder, deleteReminder, getErrorMessage } from '../src/api/index.js';
 import { resyncLocalReminders } from '../src/utils/localReminders.js';
+import { queueOfflineComplete } from '../src/utils/offlineCompleteQueue.js';
 import { useAuth } from '../src/context/AuthContext.js';
-import { colors, radius, spacing, typography } from '../src/theme.js';
+import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
 
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const pad = (n) => String(n).padStart(2, '0');
 const toKey = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
+
+// Naive "+s" is wrong for a couple of these (Company -> Companys), so the
+// legend/stat tiles get an explicit plural instead of guessing.
+const PLURAL_LABELS = {
+  medicine: 'Medicines',
+  birthday: 'Birthdays',
+  anniversary: 'Anniversaries',
+  note: 'Messages',
+  task: 'Tasks',
+  custom: 'Others',
+  recharge: 'Recharges',
+  event: 'Events',
+  alarm: 'Alarms',
+  company: 'Companies',
+};
+
+// Up to this many type buckets in the legend/stat tiles - the busiest few,
+// not every type that ever appears (screen width doesn't allow it).
+const MAX_TYPE_BUCKETS = 4;
+
+const monthTypeCounts = (remindersByDate) => {
+  const counts = {};
+  Object.values(remindersByDate).forEach((dayItems) => {
+    (dayItems || []).forEach((r) => {
+      counts[r.type] = (counts[r.type] || 0) + 1;
+    });
+  });
+  return Object.entries(counts)
+    .filter(([type]) => reminderTypeStyles[type])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_TYPE_BUCKETS)
+    .map(([type, count]) => ({ type, count, ...reminderTypeStyles[type] }));
+};
 
 const buildGrid = (year, month) => {
   const firstDay = new Date(year, month, 1).getDay();
@@ -40,6 +75,7 @@ export default function Calendar() {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const grid = useMemo(() => buildGrid(year, month), [year, month]);
+  const typeCounts = useMemo(() => monthTypeCounts(remindersByDate), [remindersByDate]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,11 +127,15 @@ export default function Calendar() {
     try {
       await completeReminder(reminder.id, next);
       resyncLocalReminders(user?.id);
-    } catch {
-      setRemindersByDate((prev) => ({
-        ...prev,
-        [selectedKey]: prev[selectedKey].map((r) => (r.id === reminder.id ? { ...r, is_completed: !next } : r)),
-      }));
+    } catch (err) {
+      if (err?.response) {
+        setRemindersByDate((prev) => ({
+          ...prev,
+          [selectedKey]: prev[selectedKey].map((r) => (r.id === reminder.id ? { ...r, is_completed: !next } : r)),
+        }));
+      } else {
+        queueOfflineComplete(reminder.id, next);
+      }
     }
   };
 
@@ -153,11 +193,9 @@ export default function Calendar() {
     <ScreenContainer edges={['top']} style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.screenTitle}>Calendar</Text>
-        {!isToday ? (
-          <Pressable style={styles.todayBtn} onPress={goToToday} hitSlop={8}>
-            <Text style={styles.todayBtnText}>Today</Text>
-          </Pressable>
-        ) : null}
+        <Pressable style={styles.todayBtn} onPress={goToToday} hitSlop={8} disabled={isToday}>
+          <Ionicons name="calendar" size={20} color={isToday ? colors.textMuted : colors.primary} />
+        </Pressable>
       </View>
 
       <View style={styles.card}>
@@ -174,8 +212,13 @@ export default function Calendar() {
         </View>
 
         <View style={styles.weekRow}>
-          {WEEKDAYS.map((w) => (
-            <Text key={w} style={styles.weekday}>{w}</Text>
+          {WEEKDAYS.map((w, i) => (
+            <Text
+              key={w}
+              style={[styles.weekday, i === 0 && styles.weekendSun, i === 6 && styles.weekendSat]}
+            >
+              {w}
+            </Text>
           ))}
         </View>
 
@@ -184,11 +227,13 @@ export default function Calendar() {
             if (!day) return <View key={i} style={styles.cell} />;
             const key = toKey(year, month, day);
             const dayReminders = remindersByDate[key] || [];
-            // Completed reminders get a blue dot; anything not yet completed
-            // (including daily/weekly/etc. repeaters, which are always "still
-            // coming up") gets a green dot. A day can show both if it has a mix.
-            const hasCompleted = dayReminders.some((r) => r.is_completed);
-            const hasUpcoming = dayReminders.some((r) => !r.is_completed);
+            // Up to 3 dots, one per distinct type present that day (not one
+            // per reminder - a day with 5 medicine reminders still gets a
+            // single medicine dot).
+            const dayTypes = [...new Set(dayReminders.map((r) => r.type))]
+              .filter((type) => reminderTypeStyles[type])
+              .slice(0, 3);
+            const weekday = i % 7;
             const isSelected = day === selectedDay;
             const isCurrentDay = isCurrentMonth && day === today.getDate();
             return (
@@ -203,6 +248,8 @@ export default function Calendar() {
                   <Text
                     style={[
                       styles.dayText,
+                      weekday === 0 && styles.weekendSun,
+                      weekday === 6 && styles.weekendSat,
                       isCurrentDay && !isSelected && styles.dayTextToday,
                       isSelected && styles.dayTextActive,
                     ]}
@@ -210,20 +257,37 @@ export default function Calendar() {
                     {day}
                   </Text>
                 </View>
-                {hasCompleted || hasUpcoming ? (
+                {dayTypes.length ? (
                   <View style={styles.dotRow}>
-                    {hasCompleted ? (
-                      <View style={[styles.dot, styles.dotCompleted, isSelected && styles.dotActive]} />
-                    ) : null}
-                    {hasUpcoming ? (
-                      <View style={[styles.dot, styles.dotUpcoming, isSelected && styles.dotActive]} />
-                    ) : null}
+                    {dayTypes.map((type) => (
+                      <View
+                        key={type}
+                        style={[
+                          styles.dot,
+                          { backgroundColor: reminderTypeStyles[type].color },
+                          isSelected && styles.dotActive,
+                        ]}
+                      />
+                    ))}
                   </View>
                 ) : null}
               </Pressable>
             );
           })}
         </View>
+
+        {typeCounts.length ? (
+          <View style={styles.legendRow}>
+            {typeCounts.map(({ type, count, color }) => (
+              <View key={type} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: color }]} />
+                <Text style={styles.legendText}>
+                  {count} {PLURAL_LABELS[type] || `${TYPE_LABELS[type]}s`}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <ScrollView style={styles.listWrap} contentContainerStyle={styles.list}>
@@ -256,9 +320,22 @@ export default function Calendar() {
               onPress={openReminder}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              accentBorder
             />
           ))
         )}
+
+        {typeCounts.length ? (
+          <View style={styles.statsGrid}>
+            {typeCounts.map(({ type, count, color, bg, icon }) => (
+              <View key={type} style={[styles.statTile, { backgroundColor: bg }]}>
+                <MaterialCommunityIcons name={icon} size={18} color={color} />
+                <Text style={[styles.statNumber, { color }]}>{count}</Text>
+                <Text style={styles.statLabel}>{PLURAL_LABELS[type] || `${TYPE_LABELS[type]}s`}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
 
       <BottomNavBar />
@@ -290,15 +367,17 @@ const styles = StyleSheet.create({
     ...typography.h2,
   },
   todayBtn: {
-    backgroundColor: colors.primaryLight,
+    width: 40,
+    height: 40,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-  },
-  todayBtnText: {
-    ...typography.bodyMuted,
-    color: colors.primary,
-    fontWeight: '700',
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   card: {
     backgroundColor: colors.card,
@@ -340,6 +419,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     width: `${100 / 7}%`,
     textAlign: 'center',
+  },
+  weekendSun: {
+    color: colors.danger,
+  },
+  weekendSat: {
+    color: colors.blue,
   },
   grid: {
     flexDirection: 'row',
@@ -392,14 +477,53 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
   },
-  dotCompleted: {
-    backgroundColor: colors.blue,
-  },
-  dotUpcoming: {
-    backgroundColor: colors.success,
-  },
   dotActive: {
     backgroundColor: colors.white,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.md,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  legendText: {
+    ...typography.caption,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  statTile: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    alignItems: 'center',
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+  },
+  statNumber: {
+    ...typography.h2,
+    marginTop: spacing.xs,
+  },
+  statLabel: {
+    ...typography.caption,
+    marginTop: 2,
   },
   listWrap: {
     flex: 1,
@@ -416,9 +540,9 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   addBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',

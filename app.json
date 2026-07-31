@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "mobile",
-    "slug": "lifemate",
+    "slug": "life",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -30,7 +30,12 @@
       "expo-status-bar",
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "sounds": ["./assets/reminder_alert.wav"]
+        }
+      ],
       "expo-audio",
       "expo-sharing",
       [
@@ -40,14 +45,20 @@
           "speechRecognitionPermission": "Allow LifeMate to use speech recognition to fill forms by voice.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow LifeMate to access your contacts to find friends already using the app."
+        }
       ]
     ],
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "eb08ba46-b741-49ee-8698-8647e1f9be2c"
+        "projectId": "2b237239-57c2-4d0b-9599-6cb359484e88"
       }
     },
-    "owner": "chandra8120"
+    "owner": "lifemate123"
   }
 }

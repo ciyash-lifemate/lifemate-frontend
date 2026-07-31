@@ -32,7 +32,7 @@ export default function Splash() {
       <View style={styles.iconCircle}>
         <MaterialCommunityIcons name="robot-happy-outline" size={56} color={colors.primary} />
       </View>
-      <Text style={styles.title}>LifeMate AI</Text>
+      <Text style={styles.title}>LifeMate</Text>
       <Text style={styles.tagline}>Remember Everything.{'\n'}Live Better.</Text>
     </LinearGradient>
   );

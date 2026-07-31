@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isNotificationsSupported } from './notifications.js';
+import { isNotificationsSupported, getPreferredChannelId } from './notifications.js';
 import { listReminders } from '../api/index.js';
 
 // Same lazy require() as notifications.js - expo-notifications throws the
@@ -10,11 +10,6 @@ import { listReminders } from '../api/index.js';
 // module instance notifications.js already configured (setNotificationHandler
 // etc.), so there's nothing to re-initialize here.
 const getNotifications = () => (isNotificationsSupported() ? require('expo-notifications') : null);
-
-// Must match the channel notifications.js creates - Android channels are
-// immutable once created, so scheduling against a different id would either
-// silently use default settings or need its own setNotificationChannelAsync call.
-const CHANNEL_ID = 'reminders-v2';
 
 const STORAGE_KEY = 'local_reminder_schedule';
 
@@ -66,25 +61,25 @@ const pad = (n) => String(n).padStart(2, '0');
 // moment has already passed). Dates/times are parsed as local wall-clock
 // (no "Z" suffix) so the trigger fires at the phone's own local time,
 // matching what the reminder form actually showed the user.
-const buildTrigger = (reminder, Notifications) => {
+const buildTrigger = (reminder, Notifications, channelId) => {
   const { SchedulableTriggerInputTypes: Types } = Notifications;
   const [hour, minute] = (reminder.reminder_time || '00:00').slice(0, 5).split(':').map(Number);
 
   if (reminder.repeat_type === 'daily') {
-    return { type: Types.DAILY, hour, minute, channelId: CHANNEL_ID };
+    return { type: Types.DAILY, hour, minute, channelId };
   }
 
   if (reminder.repeat_type === 'weekly') {
     // JS Date.getDay(): 0=Sunday..6=Saturday. expo-notifications WEEKLY
     // weekday: 1=Sunday..7=Saturday - one-based, not zero-based.
     const weekday = new Date(`${reminder.reminder_date}T00:00:00`).getDay() + 1;
-    return { type: Types.WEEKLY, weekday, hour, minute, channelId: CHANNEL_ID };
+    return { type: Types.WEEKLY, weekday, hour, minute, channelId };
   }
 
   if (reminder.repeat_type === 'monthly') {
     const day = new Date(`${reminder.reminder_date}T00:00:00`).getDate();
     // MONTHLY is Android-only; iOS needs a repeating CALENDAR trigger instead.
-    if (Platform.OS === 'android') return { type: Types.MONTHLY, day, hour, minute, channelId: CHANNEL_ID };
+    if (Platform.OS === 'android') return { type: Types.MONTHLY, day, hour, minute, channelId };
     return { type: Types.CALENDAR, day, hour, minute, repeats: true };
   }
 
@@ -93,7 +88,7 @@ const buildTrigger = (reminder, Notifications) => {
     const day = parsed.getDate();
     const month = parsed.getMonth(); // 0-indexed, matches expo-notifications
     // YEARLY is Android-only; iOS needs a repeating CALENDAR trigger instead.
-    if (Platform.OS === 'android') return { type: Types.YEARLY, day, month, hour, minute, channelId: CHANNEL_ID };
+    if (Platform.OS === 'android') return { type: Types.YEARLY, day, month, hour, minute, channelId };
     return { type: Types.CALENDAR, day, month, hour, minute, repeats: true };
   }
 
@@ -101,7 +96,7 @@ const buildTrigger = (reminder, Notifications) => {
   // (e.g. an old reminder being re-synced) since there's nothing to fire.
   const fireDate = new Date(`${reminder.reminder_date}T${pad(hour)}:${pad(minute)}:00`);
   if (Number.isNaN(fireDate.getTime()) || fireDate.getTime() <= Date.now()) return null;
-  return { type: Types.DATE, date: fireDate, channelId: CHANNEL_ID };
+  return { type: Types.DATE, date: fireDate, channelId };
 };
 
 const loadMap = async () => {
@@ -114,6 +109,42 @@ const loadMap = async () => {
 };
 
 const saveMap = (map) => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map)).catch(() => {});
+
+// Schedules the on-device alert for a reminder that hasn't reached the
+// backend yet (see src/utils/offlineReminderQueue.js) - same trigger/content
+// building as the synced path, just keyed under `draft:<tempId>` in the same
+// map instead of a real server id, so cancelDraftReminder can find it again
+// once the queued create finally succeeds.
+export const scheduleDraftReminder = async (tempId, draftRow) => {
+  const Notifications = getNotifications();
+  if (!Notifications) return false;
+  const channelId = await getPreferredChannelId();
+  const trigger = buildTrigger(draftRow, Notifications, channelId);
+  if (!trigger) return false;
+  try {
+    const notifId = await Notifications.scheduleNotificationAsync({ content: buildContent(draftRow), trigger });
+    const map = await loadMap();
+    map[`draft:${tempId}`] = notifId;
+    await saveMap(map);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Cancels the on-device alert scheduled by scheduleDraftReminder - called
+// once the queued create either reaches the backend (resyncLocalReminders
+// then reschedules it under the real server id) or is dropped as
+// unrecoverable.
+export const cancelDraftReminder = async (tempId) => {
+  const Notifications = getNotifications();
+  const map = await loadMap();
+  const key = `draft:${tempId}`;
+  if (!map[key]) return;
+  if (Notifications) await Notifications.cancelScheduledNotificationAsync(map[key]).catch(() => {});
+  delete map[key];
+  await saveMap(map);
+};
 
 // Cancels every reminder this app has locally scheduled and forgets them -
 // called on sign-out so a second account signing into the same device never
@@ -168,9 +199,10 @@ export const resyncLocalReminders = async (userId) => {
   );
   const map = await loadMap();
   const keepIds = new Set();
+  const channelId = await getPreferredChannelId();
 
   for (const reminder of active) {
-    const trigger = buildTrigger(reminder, Notifications);
+    const trigger = buildTrigger(reminder, Notifications, channelId);
     if (!trigger) continue;
     const key = String(reminder.id);
     keepIds.add(key);

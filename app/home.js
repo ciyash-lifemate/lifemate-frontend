@@ -11,6 +11,7 @@ import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
 import { Avatar } from '../src/components/Avatar.js';
 import {
   listTodayReminders,
+  listCalendarReminders,
   completeReminder,
   deleteReminder,
   getUnreadNotificationCount,
@@ -18,6 +19,8 @@ import {
 } from '../src/api/index.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { resyncLocalReminders } from '../src/utils/localReminders.js';
+import { queueOfflineComplete } from '../src/utils/offlineCompleteQueue.js';
+import { formatClockTime } from '../src/utils/date.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
 
 const QUICK_ADD = [
@@ -31,12 +34,29 @@ const QUICK_ADD = [
   { key: 'event', label: 'Event/Meeting', path: '/reminders/event' },
   { key: 'alarm', label: 'Alarm', path: '/reminders/alarm' },
   { key: 'custom', label: 'Others', path: '/reminders/custom' },
+  // Not a reminder either (its own fitness_logs table, one row per day) -
+  // own icon for the same reason 'note' above has one.
+  { key: 'fitness', label: 'Fitness', path: '/fitness', style: { color: colors.success, bg: '#E7F8ED', icon: 'run' } },
+  // Business Message feature - moved here from the Business row. Own key
+  // ('message', not 'note') since the personal Note tile above already
+  // uses 'note' and both now live in the same list.
+  {
+    key: 'message',
+    label: 'Message',
+    path: '/business-notes',
+    style: { color: '#1D4ED8', bg: '#DBEAFE', icon: 'message-text-outline' },
+  },
 ];
 
 const QUICK_ADD_BUSINESS = [
   { key: 'company', label: 'Companies', path: '/companies' },
   { key: 'task', label: 'Tasks', path: '/tasks' },
-  { key: 'note', label: 'Message', path: '/business-notes' },
+  {
+    key: 'family',
+    label: 'Family Sharing',
+    path: '/family',
+    style: { color: colors.pink, bg: '#FDE8F0', icon: 'account-heart' },
+  },
 ];
 
 const greeting = () => {
@@ -46,10 +66,45 @@ const greeting = () => {
   return 'Good Evening';
 };
 
+const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// Next 7 days' events, flattened out of the calendar's per-date grouping and
+// capped to the soonest few - a lightweight teaser, not a full agenda (that's
+// what "View Calendar" is for).
+const UPCOMING_DAYS_AHEAD = 7;
+const UPCOMING_LIMIT = 3;
+
+// Home is a teaser, not the full agenda - cap the visible list so a busy day
+// (10-15 reminders) doesn't turn the whole screen into one long scroll.
+// "View all" (-> Calendar, already on today) is where the rest live.
+const HOME_REMINDERS_LIMIT = 4;
+
+// reminder_time comes back as a bare "HH:mm:ss" - anchor it to an arbitrary
+// date just to get a parseable Date for formatClockTime (same trick as
+// ReminderRow's own formatTime).
+const formatTime = (value) => {
+  if (!value) return '';
+  const d = new Date(value.includes('T') ? value : `1970-01-01T${value}`);
+  return Number.isNaN(d.getTime()) ? value : formatClockTime(d);
+};
+
+const MOTIVATION_QUOTES = [
+  'Small steps every day lead to big changes.',
+  'Discipline is choosing between what you want now and what you want most.',
+  "Consistency is what transforms average into excellence.",
+  'A little progress each day adds up to big results.',
+  'Done is better than perfect.',
+  'Your future is created by what you do today, not tomorrow.',
+];
+const dayOfYear = (d) => Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+
 export default function Home() {
   const router = useRouter();
   const { user } = useAuth();
   const [reminders, setReminders] = useState([]);
+  const [upcoming, setUpcoming] = useState([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,15 +112,25 @@ export default function Home() {
   // the modal re-derives the live row below instead of showing a stale snapshot.
   const [selectedReminderId, setSelectedReminderId] = useState(null);
   const selectedReminder = reminders.find((r) => r.id === selectedReminderId) || null;
+  const motivationQuote = MOTIVATION_QUOTES[dayOfYear(new Date()) % MOTIVATION_QUOTES.length];
 
   const load = useCallback(async () => {
     try {
-      const [todayReminders, unreadCount] = await Promise.all([
+      const today = new Date();
+      const from = dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
+      const to = dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + UPCOMING_DAYS_AHEAD));
+      const [todayReminders, unreadCount, upcomingByDate] = await Promise.all([
         listTodayReminders().catch(() => []),
         getUnreadNotificationCount().catch(() => 0),
+        listCalendarReminders(from, to).catch(() => ({})),
       ]);
       setReminders(Array.isArray(todayReminders) ? todayReminders : todayReminders?.items || []);
       setUnread(typeof unreadCount === 'number' ? unreadCount : unreadCount?.count || 0);
+      const flatUpcoming = Object.entries(upcomingByDate && typeof upcomingByDate === 'object' ? upcomingByDate : {})
+        .flatMap(([date, items]) => (items || []).map((r) => ({ ...r, reminder_date: date })))
+        .sort((a, b) => `${a.reminder_date}${a.reminder_time || ''}`.localeCompare(`${b.reminder_date}${b.reminder_time || ''}`))
+        .slice(0, UPCOMING_LIMIT);
+      setUpcoming(flatUpcoming);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -89,13 +154,20 @@ export default function Home() {
     try {
       await completeReminder(reminder.id, next);
       resyncLocalReminders(user?.id);
-    } catch {
-      setReminders((prev) => prev.map((r) => (r.id === reminder.id ? { ...r, is_completed: !next } : r)));
+    } catch (err) {
+      if (err?.response) {
+        // The server itself rejected it - a real failure, revert the tap.
+        setReminders((prev) => prev.map((r) => (r.id === reminder.id ? { ...r, is_completed: !next } : r)));
+      } else {
+        // No network - keep the optimistic tap and replay it once
+        // LocalReminderSync's next foreground sync succeeds, instead of
+        // silently reverting something the user clearly meant to do.
+        queueOfflineComplete(reminder.id, next);
+      }
     }
   };
 
   const completedCount = reminders.filter((r) => r.is_completed).length;
-  const pendingCount = reminders.length - completedCount;
 
   const renderQuickAddItem = (item) => {
     const type = item.style || reminderTypeStyles[item.key];
@@ -173,39 +245,60 @@ export default function Home() {
           </Pressable>
           <Pressable style={styles.bell} onPress={() => router.push('/notifications')} hitSlop={10}>
             <Ionicons name="notifications-outline" size={22} color={colors.text} />
-            {unread > 0 ? <View style={styles.badge} /> : null}
+            {unread > 0 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
 
         <Pressable onPress={() => router.push('/ai-chat')} style={styles.aiCardWrap}>
           <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.aiCard}>
-            <View style={styles.aiIconWrap}>
-              <MaterialCommunityIcons name="robot-happy-outline" size={26} color={colors.white} />
+            <View style={styles.aiTopRow}>
+              <View style={styles.aiIconWrap}>
+                <MaterialCommunityIcons name="robot-happy-outline" size={26} color={colors.white} />
+              </View>
+              <View style={styles.aiTextWrap}>
+                <View style={styles.aiTitleRow}>
+                  <Text style={styles.aiTitle}>LifeMate</Text>
+                  <View style={styles.aiBadge}>
+                    <Text style={styles.aiBadgeText}>AI</Text>
+                  </View>
+                </View>
+                <Text style={styles.aiSubtitle}>
+                  {reminders.length > 0
+                    ? `You have ${reminders.length} reminder${reminders.length === 1 ? '' : 's'} today.`
+                    : 'You are all caught up today.'}{'\n'}Stay productive 💪
+                </Text>
+              </View>
             </View>
-            <View style={styles.aiTextWrap}>
-              <Text style={styles.aiTitle}>LifeMate AI</Text>
-              <Text style={styles.aiSubtitle}>
-                {reminders.length > 0
-                  ? `You have ${reminders.length} reminder${reminders.length === 1 ? '' : 's'} today.`
-                  : 'You are all caught up today.'}{'\n'}Stay productive 💪
-              </Text>
+            <View style={styles.askAiBtn}>
+              <Text style={styles.askAiBtnText}>Ask AI</Text>
+              <Ionicons name="arrow-forward" size={16} color={colors.primary} />
             </View>
-            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
           </LinearGradient>
         </Pressable>
 
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Today's Reminders</Text>
-            {reminders.length > 0 ? (
-              <View style={styles.statusRow}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>{completedCount} done</Text>
-                <View style={[styles.statusDot, styles.statusDotPending]} />
-                <Text style={styles.statusText}>{pendingCount} pending</Text>
-              </View>
-            ) : null}
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            </View>
+            <Text style={styles.statNumber}>{reminders.length}</Text>
+            <Text style={styles.statLabel}>Reminders Today</Text>
           </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: '#E7F8ED' }]}>
+              <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
+            </View>
+            <Text style={styles.statNumber}>{completedCount}</Text>
+            <Text style={styles.statLabel}>Completed</Text>
+          </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Today's Reminders</Text>
           <Pressable onPress={() => router.push('/calendar')} hitSlop={6}>
             <Text style={styles.viewAll}>View all</Text>
           </Pressable>
@@ -216,7 +309,7 @@ export default function Home() {
         ) : reminders.length === 0 ? (
           <Text style={styles.emptyText}>No reminders for today yet.</Text>
         ) : (
-          reminders.map((reminder) => (
+          reminders.slice(0, HOME_REMINDERS_LIMIT).map((reminder) => (
             <ReminderRow
               key={reminder.id}
               reminder={reminder}
@@ -229,10 +322,60 @@ export default function Home() {
         )}
 
         <Text style={[styles.sectionTitle, styles.quickAddTitle]}>Quick Add</Text>
-        <View style={styles.quickAddRow}>{QUICK_ADD.map(renderQuickAddItem)}</View>
+        <View style={styles.quickAddRow}>
+          {QUICK_ADD.map(renderQuickAddItem)}
+          <Pressable style={styles.quickAddItem} onPress={() => router.push('/reminders/add')}>
+            <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.quickAddPlus}>
+              <Ionicons name="add" size={24} color={colors.white} />
+            </LinearGradient>
+            <Text style={styles.quickAddLabel}>More</Text>
+          </Pressable>
+        </View>
 
         <Text style={[styles.sectionTitle, styles.quickAddTitle]}>Business</Text>
         <View style={styles.quickAddRow}>{QUICK_ADD_BUSINESS.map(renderQuickAddItem)}</View>
+
+        {upcoming.length > 0 ? (
+          <>
+            <View style={[styles.sectionHeader, styles.quickAddTitle]}>
+              <Text style={styles.sectionTitle}>Upcoming Events</Text>
+              <Pressable onPress={() => router.push('/calendar')} hitSlop={6}>
+                <Text style={styles.viewAll}>View Calendar</Text>
+              </Pressable>
+            </View>
+            <View style={styles.upcomingRow}>
+              {upcoming.map((item) => {
+                const d = new Date(`${item.reminder_date}T00:00:00`);
+                return (
+                  <Pressable key={item.id} style={styles.upcomingCard} onPress={() => handleEdit(item)}>
+                    <View style={styles.upcomingDateBadge}>
+                      <Text style={styles.upcomingMonth}>{MONTH_SHORT[d.getMonth()]}</Text>
+                      <Text style={styles.upcomingDay}>{d.getDate()}</Text>
+                      <Text style={styles.upcomingWeekday}>{WEEKDAY_SHORT[d.getDay()]}</Text>
+                    </View>
+                    <View style={styles.upcomingBody}>
+                      <Text style={styles.upcomingTitle} numberOfLines={2}>{item.title}</Text>
+                      <View style={styles.upcomingMetaRow}>
+                        <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                        <Text style={styles.upcomingMeta}>
+                          {item.reminder_time ? formatTime(item.reminder_time) : 'All Day'}
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        <View style={styles.motivationCard}>
+          <Ionicons name="sparkles" size={18} color={colors.primary} style={styles.motivationIcon} />
+          <View style={styles.motivationTextWrap}>
+            <Text style={styles.motivationLabel}>Today's Motivation</Text>
+            <Text style={styles.motivationQuote}>“{motivationQuote}”</Text>
+          </View>
+        </View>
       </ScrollView>
       <BottomNavBar />
       <ReminderDetailModal
@@ -291,14 +434,22 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 9,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: 4,
+    right: 4,
+    minWidth: 17,
+    height: 17,
+    borderRadius: radius.pill,
+    paddingHorizontal: 3,
     backgroundColor: colors.danger,
     borderWidth: 1.5,
     borderColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.white,
   },
   aiCardWrap: {
     marginBottom: spacing.lg,
@@ -310,10 +461,13 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   aiCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     borderRadius: radius.lg,
     padding: spacing.md,
+  },
+  aiTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
   aiIconWrap: {
     width: 48,
@@ -327,43 +481,89 @@ const styles = StyleSheet.create({
   aiTextWrap: {
     flex: 1,
   },
+  aiTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   aiTitle: {
     ...typography.h3,
     color: colors.white,
-    marginBottom: 2,
+  },
+  aiBadge: {
+    marginLeft: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  aiBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.white,
   },
   aiSubtitle: {
     ...typography.bodyMuted,
     color: colors.white,
     opacity: 0.9,
   },
+  askAiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    gap: spacing.xs,
+    backgroundColor: colors.white,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  askAiBtnText: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  statIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  statNumber: {
+    ...typography.h2,
+  },
+  statLabel: {
+    ...typography.caption,
+    textAlign: 'center',
+    marginTop: 2,
+  },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
   sectionTitle: {
     ...typography.h3,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: colors.success,
-    marginRight: 5,
-  },
-  statusDotPending: {
-    backgroundColor: colors.danger,
-    marginLeft: spacing.sm,
-  },
-  statusText: {
-    ...typography.caption,
   },
   viewAll: {
     ...typography.bodyMuted,
@@ -399,8 +599,103 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 1,
   },
+  quickAddPlus: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   quickAddLabel: {
     ...typography.caption,
     textAlign: 'center',
+  },
+  upcomingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  upcomingCard: {
+    flex: 1,
+    minWidth: '45%',
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  upcomingDateBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  upcomingMonth: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  upcomingDay: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  upcomingWeekday: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  upcomingBody: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  upcomingTitle: {
+    ...typography.body,
+    fontWeight: '600',
+  },
+  upcomingMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  upcomingMeta: {
+    ...typography.caption,
+  },
+  motivationCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.lg,
+  },
+  motivationIcon: {
+    marginRight: spacing.sm,
+    marginTop: 2,
+  },
+  motivationTextWrap: {
+    flex: 1,
+  },
+  motivationLabel: {
+    ...typography.caption,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: 4,
+  },
+  motivationQuote: {
+    ...typography.body,
+    fontStyle: 'italic',
   },
 });

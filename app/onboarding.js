@@ -9,7 +9,7 @@ import { colors, typography, spacing } from '../src/theme.js';
 const SLIDES = [
   {
     icon: 'robot-happy-outline',
-    title: 'Welcome to\nLifeMate AI',
+    title: 'Welcome to\nLifeMate',
     subtitle: 'Your AI Powered\nLife Assistant',
   },
   {

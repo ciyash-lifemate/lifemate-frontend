@@ -54,16 +54,21 @@ export default function NoteEditor() {
   };
 
   const handleSave = async () => {
-    if (!title.trim()) {
-      Alert.alert('Title required', 'Please enter a note title.');
+    if (!title.trim() && !content.trim()) {
+      Alert.alert('Empty note', 'Please enter a title or write something first.');
       return;
     }
+    // The backend requires a non-empty title - if the user only wrote
+    // content, borrow its opening words instead of forcing them to also
+    // type a separate title (same "title optional as long as something is
+    // there" idea as Keep-style note apps).
+    const savedTitle = title.trim() || content.trim().slice(0, 60);
     setLoading(true);
     try {
       if (isNew) {
-        await createNote({ title: title.trim(), content: content.trim() });
+        await createNote({ title: savedTitle, content: content.trim() });
       } else {
-        await updateNote(id, { title: title.trim(), content: content.trim() });
+        await updateNote(id, { title: savedTitle, content: content.trim() });
       }
       router.back();
     } catch (err) {
