@@ -43,12 +43,6 @@ const handleNotificationTap = (router, senderName) => (data) => {
       router.push(`/tasks/${data.reminderId}`);
       return;
     }
-    // Business Notes (type 'note') have no TYPE_CONFIG entry in the
-    // generic form - they get their own screen too.
-    if (data.reminderType === 'note') {
-      router.push(`/business-notes/${data.reminderId}`);
-      return;
-    }
     router.push({ pathname: `/reminders/${data.reminderType}`, params: { id: data.reminderId } });
   }
 };
@@ -162,14 +156,13 @@ const RootNavigator = () => {
         <Stack.Screen key="business-card" name="business-card" />,
         <Stack.Screen key="companies/index" name="companies/index" />,
         <Stack.Screen key="companies/[id]" name="companies/[id]" />,
+        <Stack.Screen key="companies/[id]/projects" name="companies/[id]/projects" />,
         <Stack.Screen key="projects/[id]" name="projects/[id]" />,
         <Stack.Screen key="reminder-groups/[id]" name="reminder-groups/[id]" />,
         <Stack.Screen key="reminder-groups/[id]/members" name="reminder-groups/[id]/members" />,
         <Stack.Screen key="group-reminders/[id]" name="group-reminders/[id]" />,
         <Stack.Screen key="tasks/index" name="tasks/index" />,
         <Stack.Screen key="tasks/[id]" name="tasks/[id]" />,
-        <Stack.Screen key="business-notes/index" name="business-notes/index" />,
-        <Stack.Screen key="business-notes/[id]" name="business-notes/[id]" />,
       ];
 
   return (

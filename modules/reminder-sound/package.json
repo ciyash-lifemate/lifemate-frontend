@@ -1,0 +1,7 @@
+{
+  "name": "reminder-sound",
+  "version": "1.0.0",
+  "description": "Local module: lets a reminder notification channel use a sound file the user picked from their own phone, not just one bundled into the app.",
+  "main": "index.js",
+  "private": true
+}

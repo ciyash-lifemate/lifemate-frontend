@@ -44,6 +44,14 @@ export const CHANNEL_IDS = Object.fromEntries(
 );
 
 const SOUND_PREF_KEY = 'notification_sound_pref';
+const CUSTOM_SOUND_INFO_KEY = 'notification_sound_custom_info';
+
+// A sound picked from the user's own phone (see modules/reminder-sound and
+// notification-settings.js) doesn't get a fixed entry in SOUND_CATALOG - its
+// channel is created on the fly at pick time, and the preference value *is*
+// that channel id (not a short id like 'bell' that still needs a CHANNEL_IDS
+// lookup), so getPreferredChannelId below can just return it directly.
+export const CUSTOM_CHANNEL_PREFIX = 'reminders-custom-';
 
 // Cached locally so scheduling a local notification never has to make a
 // network round-trip just to know which channel to use - notification-
@@ -51,9 +59,25 @@ const SOUND_PREF_KEY = 'notification_sound_pref';
 // startup settings fetch (see app/notification-settings.js) seeds it too.
 export const setPreferredSound = (value) => AsyncStorage.setItem(SOUND_PREF_KEY, value).catch(() => {});
 
+// The custom sound's own name + source uri have nowhere else to live - the
+// channel id itself is just a timestamp (the backend only needs that, not
+// what the user called the file), and the uri is what lets the settings
+// screen preview it again later without re-opening the file picker.
+export const setCustomSoundInfo = (info) =>
+  AsyncStorage.setItem(CUSTOM_SOUND_INFO_KEY, JSON.stringify(info)).catch(() => {});
+export const getCustomSoundInfo = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(CUSTOM_SOUND_INFO_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export const getPreferredChannelId = async () => {
   try {
     const pref = await AsyncStorage.getItem(SOUND_PREF_KEY);
+    if (pref?.startsWith(CUSTOM_CHANNEL_PREFIX)) return pref;
     return CHANNEL_IDS[pref] || CHANNEL_IDS.default;
   } catch {
     return CHANNEL_IDS.default;

@@ -8,6 +8,7 @@ import { Header } from '../../src/components/Header.js';
 import { BottomNavBar } from '../../src/components/BottomNavBar.js';
 import { Avatar } from '../../src/components/Avatar.js';
 import { Button } from '../../src/components/Button.js';
+import { NoInternetView } from '../../src/components/NoInternetView.js';
 import {
   getFamilyGroup,
   listSharedReminders,
@@ -39,21 +40,29 @@ export default function FamilySharing() {
   const [group, setGroup] = useState(null);
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
+  // True only when getFamilyGroup below failed to reach the server at all
+  // (see the catch) - without this, a real network failure rendered the
+  // exact same "No family group yet / Create Family Group" empty state as a
+  // genuinely groupless account, which read as "you haven't set this up"
+  // when the real story was "couldn't check". See NoInternetView.js.
+  const [offline, setOffline] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const g = await getFamilyGroup();
       setGroup(g);
+      setOffline(false);
       if (g) {
         const all = await listSharedReminders('all').catch(() => []);
         setReminders(Array.isArray(all) ? all : []);
       } else {
         setReminders([]);
       }
-    } catch {
+    } catch (err) {
       setGroup(null);
       setReminders([]);
+      setOffline(!err?.response);
     } finally {
       setLoading(false);
     }
@@ -131,6 +140,8 @@ export default function FamilySharing() {
 
         {loading ? (
           <Text style={styles.emptyText}>Loading…</Text>
+        ) : offline ? (
+          <NoInternetView onRetry={load} />
         ) : !group ? (
           <View style={styles.emptyCard}>
             <Ionicons name="people-outline" size={32} color={colors.primary} />

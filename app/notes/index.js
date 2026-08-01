@@ -4,6 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../../src/components/ScreenContainer.js';
 import { BottomNavBar } from '../../src/components/BottomNavBar.js';
+import { NoInternetView } from '../../src/components/NoInternetView.js';
 import { listNotes } from '../../src/api/index.js';
 import { parseServerDate } from '../../src/utils/date.js';
 import { colors, radius, spacing, typography } from '../../src/theme.js';
@@ -25,6 +26,10 @@ export default function NotesList() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // True only when the load below failed to reach the server at all (see
+  // the catch) - see src/components/NoInternetView.js for why this is
+  // tracked separately from a genuinely empty/no-results list.
+  const [offline, setOffline] = useState(false);
   const pageRef = useRef(1);
 
   // `query` is captured per-call (not read from state) so a fast-typed
@@ -37,9 +42,11 @@ export default function NotesList() {
       const items = Array.isArray(data) ? data : data?.items || [];
       setNotes(items);
       setHasMore(Array.isArray(data) ? false : items.length < (data?.total ?? items.length));
-    } catch {
+      setOffline(false);
+    } catch (err) {
       setNotes([]);
       setHasMore(false);
+      setOffline(!err?.response);
     } finally {
       setLoading(false);
     }
@@ -97,28 +104,32 @@ export default function NotesList() {
         />
       </View>
 
-      <FlatList
-        data={notes}
-        keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={styles.list}
-        renderItem={({ item, index }) => (
-          <Pressable
-            style={[styles.card, { backgroundColor: NOTE_COLORS[index % NOTE_COLORS.length] }]}
-            onPress={() => router.push(`/notes/${item.id}`)}
-          >
-            <View style={styles.cardBody}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{item.title || 'Untitled'}</Text>
-              <Text style={styles.cardPreview} numberOfLines={1}>{item.content || ''}</Text>
-              <Text style={styles.cardDate}>{formatDate(item.updated_at || item.created_at)}</Text>
-            </View>
-            <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
-          </Pressable>
-        )}
-        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notes yet. Tap + to add one.</Text> : null}
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.4}
-        ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
-      />
+      {!loading && offline && notes.length === 0 ? (
+        <NoInternetView onRetry={() => load(search)} />
+      ) : (
+        <FlatList
+          data={notes}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={styles.list}
+          renderItem={({ item, index }) => (
+            <Pressable
+              style={[styles.card, { backgroundColor: NOTE_COLORS[index % NOTE_COLORS.length] }]}
+              onPress={() => router.push(`/notes/${item.id}`)}
+            >
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle} numberOfLines={1}>{item.title || 'Untitled'}</Text>
+                <Text style={styles.cardPreview} numberOfLines={1}>{item.content || ''}</Text>
+                <Text style={styles.cardDate}>{formatDate(item.updated_at || item.created_at)}</Text>
+              </View>
+              <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
+            </Pressable>
+          )}
+          ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notes yet. Tap + to add one.</Text> : null}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
+        />
+      )}
 
       <BottomNavBar />
     </ScreenContainer>

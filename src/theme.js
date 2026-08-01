@@ -55,11 +55,13 @@ export const reminderTypeStyles = {
   medicine: { color: colors.blue, bg: '#E8F0FE', icon: 'pill' },
   birthday: { color: colors.pink, bg: '#FDE8F0', icon: 'cake-variant' },
   anniversary: { color: colors.danger, bg: '#FDE9E9', icon: 'heart' },
-  // type 'note' reminders are exclusively the Business "Message" feature
-  // (app/business-notes) - the plain personal Notes tile on Home isn't a
-  // reminder at all (separate `notes` table, no type field) and deliberately
-  // keeps its own distinct icon defined inline in home.js, so the two don't
-  // look like the same feature.
+  // type 'note' was the Business "Message" feature, removed - every
+  // listing query now excludes it server-side (see reminders.service.js),
+  // so nothing should render this anymore. Left as a harmless fallback
+  // rather than deleted outright, in case an old cached list somewhere
+  // still has one. Not to be confused with the plain personal Notes tile
+  // on Home, which isn't a reminder at all (separate `notes` table, no
+  // type field) and keeps its own distinct icon defined inline in home.js.
   note: { color: '#1D4ED8', bg: '#DBEAFE', icon: 'message-text-outline' },
   task: { color: colors.success, bg: '#E7F8ED', icon: 'checkbox-marked-circle-outline' },
   custom: { color: colors.primary, bg: colors.primaryLight, icon: 'clock-outline' },

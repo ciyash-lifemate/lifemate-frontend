@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
-import { View, Text, SectionList, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, SectionList, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { Avatar } from '../src/components/Avatar.js';
+import { NoInternetView } from '../src/components/NoInternetView.js';
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from '../src/api/index.js';
 import { parseServerDate, formatClockTime } from '../src/utils/date.js';
 import { colors, radius, spacing, typography } from '../src/theme.js';
@@ -55,6 +56,10 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // True only when the load below failed to reach the server at all (see
+  // the catch) - see src/components/NoInternetView.js for why this is
+  // tracked separately from a genuinely empty list.
+  const [offline, setOffline] = useState(false);
   const pageRef = useRef(1);
 
   const load = useCallback(async (activeTab) => {
@@ -66,9 +71,11 @@ export default function Notifications() {
       setItems(list);
       setHasMore(Array.isArray(data) ? false : list.length < total);
       setCounts((prev) => ({ ...prev, [activeTab]: total }));
-    } catch {
+      setOffline(false);
+    } catch (err) {
       setItems([]);
       setHasMore(false);
+      setOffline(!err?.response);
     } finally {
       setLoading(false);
     }
@@ -125,16 +132,17 @@ export default function Notifications() {
     }
     // Routes to the same reminder screens the app already has - each of
     // those already shows a read-only detail card to anyone who isn't its
-    // owner/manager (see app/reminders/[type].js and
-    // app/business-notes/[id].js), so a tap here lands on that card
-    // automatically instead of needing its own separate detail screen.
+    // owner/manager (see app/reminders/[type].js), so a tap here lands on
+    // that card automatically instead of needing its own separate detail
+    // screen. A 'note' reminder_type is the removed Business Message
+    // feature - reminders/[type].js has no TYPE_CONFIG entry for it either,
+    // so it falls through to that screen's own "Unknown reminder type"
+    // fallback rather than a route that no longer exists.
     if (item.type !== 'reminder' || !item.reference_id) return;
     if (item.reminder_group_id) {
       router.push(`/group-reminders/${item.reference_id}`);
     } else if (item.reminder_project_id) {
       router.push(`/tasks/${item.reference_id}`);
-    } else if (item.reminder_type === 'note') {
-      router.push(`/business-notes/${item.reference_id}`);
     } else if (item.reminder_type) {
       router.push({ pathname: `/reminders/${item.reminder_type}`, params: { id: item.reference_id } });
     }
@@ -164,7 +172,12 @@ export default function Notifications() {
         <View style={{ width: 26 }} />
       </View>
 
-      <View style={styles.tabRow}>
+      <ScrollView
+        horizontal
+        style={styles.tabScroll}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabRow}
+      >
         {TABS.map((t) => {
           const count = counts[t.key];
           const isActive = tab === t.key;
@@ -174,7 +187,9 @@ export default function Notifications() {
               style={[styles.tab, isActive && styles.tabActive]}
               onPress={() => handleTab(t.key)}
             >
-              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{t.label}</Text>
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]} numberOfLines={1}>
+                {t.label}
+              </Text>
               {count != null ? (
                 <View style={[styles.tabCount, isActive && styles.tabCountActive]}>
                   <Text style={[styles.tabCountText, isActive && styles.tabCountTextActive]}>{count}</Text>
@@ -183,10 +198,11 @@ export default function Notifications() {
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
 
       <SectionList
         sections={sections}
+        style={styles.listScroll}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         renderSectionHeader={({ section }) => (
@@ -224,7 +240,15 @@ export default function Notifications() {
             </Pressable>
           );
         }}
-        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>No notifications yet.</Text> : null}
+        ListEmptyComponent={
+          !loading ? (
+            offline ? (
+              <NoInternetView onRetry={() => load(tab)} />
+            ) : (
+              <Text style={styles.emptyText}>No notifications yet.</Text>
+            )
+          ) : null
+        }
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
@@ -248,19 +272,29 @@ const styles = StyleSheet.create({
   headerTitle: {
     ...typography.h3,
   },
+  // ScrollView defaults to flexGrow: 1 internally when no `style` is given
+  // (only contentContainerStyle) - without this, the tab row was expanding
+  // to fill half the screen's remaining height and vertically centering its
+  // pills inside that invisible box (contentContainerStyle's alignItems:
+  // 'center' below), which is what showed up as a big empty gap above the
+  // tabs. flexGrow: 0 pins it to its natural, one-row content height.
+  tabScroll: {
+    flexGrow: 0,
+  },
   tabRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    paddingBottom: spacing.sm,
     gap: spacing.sm,
   },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     backgroundColor: colors.card,
   },
@@ -292,6 +326,11 @@ const styles = StyleSheet.create({
   },
   tabCountTextActive: {
     color: colors.white,
+  },
+  // Explicit flex: 1 so this (not the now flexGrow:0 tab row) claims all the
+  // remaining vertical space, with its own content top-aligned inside it.
+  listScroll: {
+    flex: 1,
   },
   list: {
     paddingHorizontal: spacing.lg,

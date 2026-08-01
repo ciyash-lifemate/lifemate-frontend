@@ -28,6 +28,7 @@ export default function ProjectDetail() {
   const [companyId, setCompanyId] = useState(companyIdParam);
   const [groups, setGroups] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [editing, setEditing] = useState(isNew);
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(!isNew);
 
@@ -85,6 +86,7 @@ export default function ProjectDetail() {
         router.replace(`/projects/${project.id}`);
       } else {
         await updateProject(id, { name: name.trim(), notes: notes.trim() });
+        setEditing(false);
       }
     } catch (err) {
       Alert.alert('Could not save project', getErrorMessage(err));
@@ -126,26 +128,39 @@ export default function ProjectDetail() {
         title=""
         right={
           !isNew ? (
-            <Pressable onPress={handleDelete} hitSlop={12}>
-              <Ionicons name="trash-outline" size={22} color={colors.danger} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable onPress={() => setEditing((v) => !v)} hitSlop={12}>
+                <Ionicons name="pencil-outline" size={20} color={colors.primary} />
+              </Pressable>
+              <Pressable onPress={handleDelete} hitSlop={12}>
+                <Ionicons name="trash-outline" size={22} color={colors.danger} />
+              </Pressable>
+            </View>
           ) : null
         }
       />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.heading}>{isNew ? 'New Project' : name}</Text>
 
-        <TextField label="Project Name" placeholder="Website Redesign" value={name} onChangeText={setName} voiceInput />
-        <TextField
-          label="Notes (optional)"
-          placeholder="What this project is about"
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-          style={styles.notesInput}
-        />
-
-        <Button title="Save Project" onPress={handleSave} loading={loading} style={styles.submit} />
+        {isNew || editing ? (
+          <>
+            <TextField label="Project Name" placeholder="Website Redesign" value={name} onChangeText={setName} voiceInput />
+            <TextField
+              label="Notes (optional)"
+              placeholder="What this project is about"
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              style={styles.notesInput}
+            />
+            <Button title={isNew ? 'Create Project' : 'Save Changes'} onPress={handleSave} loading={loading} style={styles.submit} />
+          </>
+        ) : notes ? (
+          <View style={styles.readOnlyField}>
+            <Text style={styles.readOnlyLabel}>Notes</Text>
+            <Text style={styles.readOnlyValue}>{notes}</Text>
+          </View>
+        ) : null}
 
         {!isNew ? (
           <View style={styles.groupsSection}>
@@ -211,9 +226,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.xl,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
   heading: {
     ...typography.h1,
     marginBottom: spacing.lg,
+  },
+  readOnlyField: {
+    marginBottom: spacing.md,
+  },
+  readOnlyLabel: {
+    ...typography.bodyMuted,
+    marginBottom: spacing.xs,
+  },
+  readOnlyValue: {
+    ...typography.body,
   },
   notesInput: {
     height: 80,

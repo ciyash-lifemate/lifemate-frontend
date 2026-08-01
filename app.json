@@ -50,6 +50,7 @@
       ],
       "expo-audio",
       "expo-sharing",
+      "expo-document-picker",
       [
         "expo-speech-recognition",
         {

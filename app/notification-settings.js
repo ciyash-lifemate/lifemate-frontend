@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Switch, Pressable, Linking, Platform, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Switch, Pressable, Linking, Platform, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { createAudioPlayer } from 'expo-audio';
+import * as DocumentPicker from 'expo-document-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { getSettings, updateSettings } from '../src/api/index.js';
-import { SOUND_CATALOG, setPreferredSound } from '../src/utils/notifications.js';
+import {
+  SOUND_CATALOG,
+  CUSTOM_CHANNEL_PREFIX,
+  setPreferredSound,
+  setCustomSoundInfo,
+  getCustomSoundInfo,
+} from '../src/utils/notifications.js';
+import { setChannelSound, takePersistableUriPermission } from '../modules/reminder-sound/index.js';
 import { colors, radius, spacing, typography } from '../src/theme.js';
 
 const ROWS = [
@@ -51,6 +59,12 @@ export default function NotificationSettings() {
   // starting a new one so tapping through several tones in a row doesn't
   // leak a growing pile of native player instances.
   const previewPlayerRef = useRef(null);
+  // The sound picked from the user's own phone, if any (see
+  // modules/reminder-sound) - { channelId, name, uri }. Kept separate from
+  // SOUND_CATALOG since there's at most one of these per device and it isn't
+  // known until the user actually picks a file.
+  const [customSound, setCustomSound] = useState(null);
+  const [pickingCustom, setPickingCustom] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -67,6 +81,7 @@ export default function NotificationSettings() {
       } finally {
         setLoading(false);
       }
+      setCustomSound(await getCustomSoundInfo());
     })();
   }, []);
 
@@ -91,16 +106,87 @@ export default function NotificationSettings() {
     }
   };
 
+  // Which sound's preview is currently playing, if any - lets the ▶️ on
+  // that one row swap to ⏸ instead of every row always showing "play" even
+  // mid-playback (tapping it again used to just restart the same sound from
+  // zero with no way to actually stop it).
+  const [previewingKey, setPreviewingKey] = useState(null);
+
+  const stopPreview = () => {
+    previewPlayerRef.current?.remove();
+    previewPlayerRef.current = null;
+    setPreviewingKey(null);
+  };
+
   const handlePreviewSound = (key) => {
-    const asset = PREVIEW_ASSETS[key];
+    if (previewingKey === key) {
+      stopPreview();
+      return;
+    }
+    // A bundled sound previews from its require()'d asset; the custom one
+    // previews from the content:// URI it was picked from (see
+    // modules/reminder-sound) - expo-audio's player accepts either shape.
+    const asset = key === customSound?.channelId ? { uri: customSound.uri } : PREVIEW_ASSETS[key];
     if (!asset) return;
     previewPlayerRef.current?.remove();
     const player = createAudioPlayer(asset);
     previewPlayerRef.current = player;
+    // Flips the icon back to "play" on its own once the clip finishes,
+    // instead of staying stuck on "pause" for a sound that's no longer
+    // actually playing.
+    const subscription = player.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish) {
+        subscription.remove();
+        if (previewPlayerRef.current === player) {
+          previewPlayerRef.current = null;
+          setPreviewingKey((prev) => (prev === key ? null : prev));
+        }
+      }
+    });
     player.play();
+    setPreviewingKey(key);
   };
 
   useEffect(() => () => previewPlayerRef.current?.remove(), []);
+
+  // Picks an audio file from the phone's own storage and makes it a real,
+  // playable notification sound - the part expo-notifications' JS API can't
+  // do on its own (see modules/reminder-sound's own comments for why).
+  // Always creates a *new* channel id rather than reusing an old custom one:
+  // channels are immutable once created, so re-using an id here would just
+  // silently keep whatever sound an earlier pick already locked in.
+  const handlePickCustomSound = async () => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Not supported', 'Picking a sound from your phone is only available on Android right now.');
+      return;
+    }
+    setPickingCustom(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: false });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+
+      await takePersistableUriPermission(asset.uri);
+      const channelId = `${CUSTOM_CHANNEL_PREFIX}${Date.now()}`;
+      await setChannelSound(channelId, 'Reminders (Custom)', asset.uri);
+
+      const info = { channelId, name: asset.name || 'Custom sound', uri: asset.uri };
+      setCustomSound(info);
+      setCustomSoundInfo(info);
+      setPreferredSound(channelId);
+      const previous = settings?.notification_sound || 'default';
+      setSettings((prev) => ({ ...prev, notification_sound: channelId }));
+      try {
+        await updateSettings({ notificationSound: channelId });
+      } catch {
+        setSettings((prev) => ({ ...prev, notification_sound: previous }));
+      }
+    } catch (err) {
+      Alert.alert('Could not use this sound', err?.message || 'Please try a different file.');
+    } finally {
+      setPickingCustom(false);
+    }
+  };
 
   // Android 12+ only schedules a reminder's local alarm at its exact minute
   // when the app holds the "Alarms & reminders" special permission -
@@ -117,6 +203,22 @@ export default function NotificationSettings() {
     Linking.sendIntent('android.settings.REQUEST_SCHEDULE_EXACT_ALARM').catch(() => Linking.openSettings());
   };
 
+  // Separate from exact-alarm permission - a phone can grant that and still
+  // kill the app's background work under its own battery manager, which
+  // silently drops both scheduled local alarms and incoming FCM pushes
+  // (looks exactly like "sometimes the reminder just never arrives", not a
+  // timing delay). This opens Android's own "battery optimization" app list
+  // (not app-specific - Linking.sendIntent can't pass the `package:` data
+  // URI a direct per-app prompt needs) so the user can find LifeMate and
+  // set it to "Don't optimize" themselves. Heavily-customized OEM skins
+  // (Vivo/Oppo/Xiaomi) layer their own separate autostart/background
+  // managers on top that no standard Android intent can reach at all - the
+  // hint text below says so rather than pretending this one button covers it.
+  const handleBatteryOptimization = () => {
+    if (Platform.OS !== 'android') return;
+    Linking.sendIntent('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS').catch(() => Linking.openSettings());
+  };
+
   return (
     <ScreenContainer edges={['top']} style={styles.container}>
       <View style={styles.header}>
@@ -130,7 +232,7 @@ export default function NotificationSettings() {
       {loading ? (
         <Text style={styles.loadingText}>Loading…</Text>
       ) : (
-        <>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.section}>
             {ROWS.map((row, i) => (
               <View key={row.key} style={[styles.row, i === ROWS.length - 1 && styles.rowLast]}>
@@ -164,7 +266,11 @@ export default function NotificationSettings() {
                   </View>
                   {PREVIEW_ASSETS[opt.key] ? (
                     <Pressable hitSlop={10} onPress={() => handlePreviewSound(opt.key)} style={styles.previewBtn}>
-                      <Ionicons name="play-circle-outline" size={22} color={colors.primary} />
+                      <Ionicons
+                        name={previewingKey === opt.key ? 'pause-circle' : 'play-circle-outline'}
+                        size={22}
+                        color={colors.primary}
+                      />
                     </Pressable>
                   ) : null}
                   <View style={[styles.radio, isSelected && styles.radioActive]}>
@@ -177,9 +283,49 @@ export default function NotificationSettings() {
 
           {Platform.OS === 'android' ? (
             <>
-              <Text style={styles.sectionTitle}>Reminders Coming Late?</Text>
+              <Text style={styles.sectionTitle}>Custom Sound</Text>
               <View style={styles.section}>
-                <Pressable style={[styles.row, styles.rowLast]} onPress={handleFixLateReminders}>
+                {customSound ? (
+                  <Pressable style={styles.row} onPress={() => handleSelectSound(customSound.channelId)}>
+                    <View style={styles.rowBody}>
+                      <Text style={styles.rowLabel}>Custom: {customSound.name}</Text>
+                      <Text style={styles.rowDescription}>Picked from your phone</Text>
+                    </View>
+                    <Pressable hitSlop={10} onPress={() => handlePreviewSound(customSound.channelId)} style={styles.previewBtn}>
+                      <Ionicons
+                        name={previewingKey === customSound.channelId ? 'pause-circle' : 'play-circle-outline'}
+                        size={22}
+                        color={colors.primary}
+                      />
+                    </Pressable>
+                    <View style={[styles.radio, settings?.notification_sound === customSound.channelId && styles.radioActive]}>
+                      {settings?.notification_sound === customSound.channelId ? <View style={styles.radioDot} /> : null}
+                    </View>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  style={[styles.row, styles.rowLast, styles.pickRow]}
+                  onPress={handlePickCustomSound}
+                  disabled={pickingCustom}
+                >
+                  <Ionicons name="folder-open-outline" size={20} color={colors.primary} />
+                  <View style={styles.rowBody}>
+                    <Text style={styles.pickLabel}>
+                      {customSound ? 'Choose a Different Sound from Phone' : 'Choose Sound from Phone'}
+                    </Text>
+                    <Text style={styles.rowDescription}>Pick any audio file saved on your device</Text>
+                  </View>
+                  {pickingCustom ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+
+          {Platform.OS === 'android' ? (
+            <>
+              <Text style={styles.sectionTitle}>Reminders Coming Late or Missing?</Text>
+              <View style={styles.section}>
+                <Pressable style={styles.row} onPress={handleFixLateReminders}>
                   <View style={styles.rowBody}>
                     <Text style={styles.rowLabel}>Enable Precise Reminder Timing</Text>
                     <Text style={styles.rowDescription}>
@@ -189,10 +335,22 @@ export default function NotificationSettings() {
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                 </Pressable>
+                <Pressable style={[styles.row, styles.rowLast]} onPress={handleBatteryOptimization}>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowLabel}>Allow Background Activity</Text>
+                    <Text style={styles.rowDescription}>
+                      Find LifeMate in the list and set it to "Don't optimize" / "No restrictions" - otherwise the
+                      phone can silently stop reminders from arriving at all, not just delay them. On Vivo/Oppo/
+                      Xiaomi phones, also check Settings for an "Autostart" or "Background power" option and allow
+                      LifeMate there too - Android's own setting alone doesn't cover those.
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                </Pressable>
               </View>
             </>
           ) : null}
-        </>
+        </ScrollView>
       )}
     </ScreenContainer>
   );
@@ -201,6 +359,9 @@ export default function NotificationSettings() {
 const styles = StyleSheet.create({
   container: {
     padding: 0,
+  },
+  content: {
+    paddingBottom: spacing.xl,
   },
   header: {
     flexDirection: 'row',
@@ -250,6 +411,14 @@ const styles = StyleSheet.create({
   },
   previewBtn: {
     marginRight: spacing.sm,
+  },
+  pickRow: {
+    gap: spacing.md,
+  },
+  pickLabel: {
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.primary,
   },
   radio: {
     width: 20,

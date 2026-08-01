@@ -6,6 +6,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
 import { DoneToggle } from '../src/components/DoneToggle.js';
+import { NoInternetView } from '../src/components/NoInternetView.js';
 import { listReminders, completeReminder, deleteReminder, getErrorMessage } from '../src/api/index.js';
 import { resyncLocalReminders } from '../src/utils/localReminders.js';
 import { useAuth } from '../src/context/AuthContext.js';
@@ -76,6 +77,10 @@ export default function ReminderHistory() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // True only when the load below failed to reach the server at all (see
+  // the catch) - see src/components/NoInternetView.js for why this is
+  // tracked separately from a genuinely empty list.
+  const [offline, setOffline] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
@@ -93,9 +98,11 @@ export default function ReminderHistory() {
       const items = Array.isArray(data) ? data : data?.items || [];
       setReminders(items);
       setHasMore(Array.isArray(data) ? false : items.length < (data?.total ?? items.length));
-    } catch {
+      setOffline(false);
+    } catch (err) {
       setReminders([]);
       setHasMore(false);
+      setOffline(!err?.response);
     } finally {
       setLoading(false);
     }
@@ -148,10 +155,6 @@ export default function ReminderHistory() {
     }
     if (reminder.project_id) {
       router.push(`/tasks/${reminder.id}`);
-      return;
-    }
-    if (reminder.type === 'note') {
-      router.push(`/business-notes/${reminder.id}`);
       return;
     }
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
@@ -268,9 +271,13 @@ export default function ReminderHistory() {
         }}
         ListEmptyComponent={
           !loading ? (
-            <Text style={styles.emptyText}>
-              {search.trim() || activeFilter !== 'All' ? 'No reminders match.' : 'No reminders yet.'}
-            </Text>
+            offline ? (
+              <NoInternetView onRetry={load} />
+            ) : (
+              <Text style={styles.emptyText}>
+                {search.trim() || activeFilter !== 'All' ? 'No reminders match.' : 'No reminders yet.'}
+              </Text>
+            )
           ) : null
         }
         onEndReached={loadMore}

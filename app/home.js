@@ -9,6 +9,8 @@ import { BottomNavBar } from '../src/components/BottomNavBar.js';
 import { ReminderRow } from '../src/components/ReminderRow.js';
 import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
 import { Avatar } from '../src/components/Avatar.js';
+import { NoInternetView } from '../src/components/NoInternetView.js';
+import { SwipeableTabScreen } from '../src/components/SwipeableTabScreen.js';
 import {
   listTodayReminders,
   listCalendarReminders,
@@ -26,10 +28,9 @@ import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/
 const QUICK_ADD = [
   { key: 'medicine', label: 'Medicine', path: '/reminders/medicine' },
   { key: 'birthday', label: 'Birthday', path: '/reminders/birthday' },
-  // Not a reminder (separate `notes` table, no `type` field) - given its
-  // own icon rather than sharing reminderTypeStyles.note, which is now the
-  // Business Message feature's look, so the two tiles don't read as the
-  // same thing.
+  // Not a reminder (separate `notes` table, no `type` field) - own icon
+  // rather than sharing reminderTypeStyles.note, so it doesn't read as the
+  // same thing as anything else in this list.
   { key: 'note', label: 'Note', path: '/notes', style: { color: colors.warning, bg: '#FDF3E1', icon: 'note-text' } },
   { key: 'event', label: 'Event/Meeting', path: '/reminders/event' },
   { key: 'alarm', label: 'Alarm', path: '/reminders/alarm' },
@@ -37,15 +38,6 @@ const QUICK_ADD = [
   // Not a reminder either (its own fitness_logs table, one row per day) -
   // own icon for the same reason 'note' above has one.
   { key: 'fitness', label: 'Fitness', path: '/fitness', style: { color: colors.success, bg: '#E7F8ED', icon: 'run' } },
-  // Business Message feature - moved here from the Business row. Own key
-  // ('message', not 'note') since the personal Note tile above already
-  // uses 'note' and both now live in the same list.
-  {
-    key: 'message',
-    label: 'Message',
-    path: '/business-notes',
-    style: { color: '#1D4ED8', bg: '#DBEAFE', icon: 'message-text-outline' },
-  },
 ];
 
 const QUICK_ADD_BUSINESS = [
@@ -108,6 +100,13 @@ export default function Home() {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // True only for a genuine "couldn't reach the server at all" failure (see
+  // the catch below) - distinct from a real empty result, which used to be
+  // indistinguishable from "offline" since every call here just caught its
+  // own error and defaulted to empty/zero either way. That read exactly
+  // like YouTube or any other app silently showing "nothing here" instead
+  // of an explicit no-connection state when it can't actually check.
+  const [offline, setOffline] = useState(false);
   // An id, not the reminder object itself, so toggling "done" from inside
   // the modal re-derives the live row below instead of showing a stale snapshot.
   const [selectedReminderId, setSelectedReminderId] = useState(null);
@@ -120,10 +119,11 @@ export default function Home() {
       const from = dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
       const to = dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + UPCOMING_DAYS_AHEAD));
       const [todayReminders, unreadCount, upcomingByDate] = await Promise.all([
-        listTodayReminders().catch(() => []),
-        getUnreadNotificationCount().catch(() => 0),
-        listCalendarReminders(from, to).catch(() => ({})),
+        listTodayReminders(),
+        getUnreadNotificationCount(),
+        listCalendarReminders(from, to),
       ]);
+      setOffline(false);
       setReminders(Array.isArray(todayReminders) ? todayReminders : todayReminders?.items || []);
       setUnread(typeof unreadCount === 'number' ? unreadCount : unreadCount?.count || 0);
       const flatUpcoming = Object.entries(upcomingByDate && typeof upcomingByDate === 'object' ? upcomingByDate : {})
@@ -131,6 +131,13 @@ export default function Home() {
         .sort((a, b) => `${a.reminder_date}${a.reminder_time || ''}`.localeCompare(`${b.reminder_date}${b.reminder_time || ''}`))
         .slice(0, UPCOMING_LIMIT);
       setUpcoming(flatUpcoming);
+    } catch (err) {
+      // err.response present = the server actually answered (with an
+      // error) - a real bug, not "no internet", so it isn't what this
+      // banner is for. Leaves whatever was already on screen alone either
+      // way instead of wiping it out from under the user on a failed
+      // pull-to-refresh.
+      if (!err?.response) setOffline(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -198,12 +205,6 @@ export default function Home() {
       router.push(`/tasks/${reminder.id}`);
       return;
     }
-    // Business Notes (type 'note') have no TYPE_CONFIG entry in the
-    // generic form - they get their own screen too.
-    if (reminder.type === 'note') {
-      router.push(`/business-notes/${reminder.id}`);
-      return;
-    }
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
   };
 
@@ -229,8 +230,14 @@ export default function Home() {
     ]);
   };
 
+  const showOfflineView = !loading && offline && reminders.length === 0 && upcoming.length === 0;
+
   return (
+    <SwipeableTabScreen path="/home">
     <ScreenContainer edges={['top']} style={styles.container}>
+      {showOfflineView ? (
+        <NoInternetView onRetry={load} />
+      ) : (
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
@@ -377,6 +384,7 @@ export default function Home() {
           </View>
         </View>
       </ScrollView>
+      )}
       <BottomNavBar />
       <ReminderDetailModal
         visible={!!selectedReminder}
@@ -387,6 +395,7 @@ export default function Home() {
         onDelete={handleDelete}
       />
     </ScreenContainer>
+    </SwipeableTabScreen>
   );
 }
 

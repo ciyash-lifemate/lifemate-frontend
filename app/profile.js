@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { Avatar } from '../src/components/Avatar.js';
+import { SwipeableTabScreen } from '../src/components/SwipeableTabScreen.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { colors, radius, spacing, typography } from '../src/theme.js';
 
@@ -143,6 +144,7 @@ export default function Profile() {
   };
 
   return (
+    <SwipeableTabScreen path="/profile">
     <ScreenContainer edges={['top']} style={styles.container}>
       <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.hero}>
         <View style={styles.heroTopRow}>
@@ -233,6 +235,7 @@ export default function Profile() {
         </View>
       </ScrollView>
     </ScreenContainer>
+    </SwipeableTabScreen>
   );
 }
 

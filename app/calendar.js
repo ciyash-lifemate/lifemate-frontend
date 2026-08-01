@@ -6,10 +6,13 @@ import { ScreenContainer } from '../src/components/ScreenContainer.js';
 import { BottomNavBar } from '../src/components/BottomNavBar.js';
 import { ReminderRow, TYPE_LABELS } from '../src/components/ReminderRow.js';
 import { ReminderDetailModal } from '../src/components/ReminderDetailModal.js';
+import { NoInternetView } from '../src/components/NoInternetView.js';
+import { SwipeableTabScreen } from '../src/components/SwipeableTabScreen.js';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { listCalendarReminders, completeReminder, deleteReminder, getErrorMessage } from '../src/api/index.js';
 import { resyncLocalReminders } from '../src/utils/localReminders.js';
 import { queueOfflineComplete } from '../src/utils/offlineCompleteQueue.js';
+import { getFestivalsForYear } from '../src/utils/festivals.js';
 import { useAuth } from '../src/context/AuthContext.js';
 import { colors, radius, reminderTypeStyles, spacing, typography } from '../src/theme.js';
 
@@ -68,6 +71,10 @@ export default function Calendar() {
   const [selectedDay, setSelectedDay] = useState(today.getDate());
   const [remindersByDate, setRemindersByDate] = useState({});
   const [loading, setLoading] = useState(true);
+  // True only when the month load below failed to reach the server at all
+  // (see the catch) - see src/components/NoInternetView.js for why this is
+  // tracked separately from "this month just has no reminders".
+  const [offline, setOffline] = useState(false);
   // An id, not the reminder object itself, so toggling "done" from inside
   // the modal re-derives the live row below instead of showing a stale snapshot.
   const [selectedReminderId, setSelectedReminderId] = useState(null);
@@ -76,6 +83,7 @@ export default function Calendar() {
   const month = cursor.getMonth();
   const grid = useMemo(() => buildGrid(year, month), [year, month]);
   const typeCounts = useMemo(() => monthTypeCounts(remindersByDate), [remindersByDate]);
+  const festivals = useMemo(() => getFestivalsForYear(year), [year]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,8 +94,10 @@ export default function Calendar() {
       // { "2025-07-15": [reminder, ...] } - not a flat array.
       const data = await listCalendarReminders(from, to);
       setRemindersByDate(data && typeof data === 'object' ? data : {});
-    } catch {
+      setOffline(false);
+    } catch (err) {
       setRemindersByDate({});
+      setOffline(!err?.response);
     } finally {
       setLoading(false);
     }
@@ -151,10 +161,6 @@ export default function Calendar() {
       router.push(`/tasks/${reminder.id}`);
       return;
     }
-    if (reminder.type === 'note') {
-      router.push(`/business-notes/${reminder.id}`);
-      return;
-    }
     router.push({ pathname: `/reminders/${reminder.type}`, params: { id: reminder.id } });
   };
 
@@ -190,6 +196,7 @@ export default function Calendar() {
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
 
   return (
+    <SwipeableTabScreen path="/calendar">
     <ScreenContainer edges={['top']} style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.screenTitle}>Calendar</Text>
@@ -236,6 +243,7 @@ export default function Calendar() {
             const weekday = i % 7;
             const isSelected = day === selectedDay;
             const isCurrentDay = isCurrentMonth && day === today.getDate();
+            const festivalName = festivals[key];
             return (
               <Pressable key={i} style={styles.cell} onPress={() => setSelectedDay(day)}>
                 <View
@@ -245,6 +253,7 @@ export default function Calendar() {
                     isSelected && styles.dayCircleActive,
                   ]}
                 >
+                  {festivalName ? <View style={styles.festivalDot} /> : null}
                   <Text
                     style={[
                       styles.dayText,
@@ -252,6 +261,7 @@ export default function Calendar() {
                       weekday === 6 && styles.weekendSat,
                       isCurrentDay && !isSelected && styles.dayTextToday,
                       isSelected && styles.dayTextActive,
+                      festivalName && !isSelected && styles.dayTextFestival,
                     ]}
                   >
                     {day}
@@ -307,8 +317,21 @@ export default function Calendar() {
           </Pressable>
         </View>
 
+        {festivals[selectedKey] ? (
+          <View style={styles.festivalBanner}>
+            <MaterialCommunityIcons name="party-popper" size={18} color="#B45309" />
+            <Text style={styles.festivalBannerText}>{festivals[selectedKey]}</Text>
+          </View>
+        ) : null}
+
         {loading ? (
           <Text style={styles.emptyText}>Loading…</Text>
+        ) : offline && Object.keys(remindersByDate).length === 0 ? (
+          <NoInternetView
+            onRetry={load}
+            title="No Internet Connection"
+            subtitle="Could not load this month's reminders. Check your connection and try again."
+          />
         ) : selectedReminders.length === 0 ? (
           <Text style={styles.emptyText}>No reminders on this day.</Text>
         ) : (
@@ -324,18 +347,6 @@ export default function Calendar() {
             />
           ))
         )}
-
-        {typeCounts.length ? (
-          <View style={styles.statsGrid}>
-            {typeCounts.map(({ type, count, color, bg, icon }) => (
-              <View key={type} style={[styles.statTile, { backgroundColor: bg }]}>
-                <MaterialCommunityIcons name={icon} size={18} color={color} />
-                <Text style={[styles.statNumber, { color }]}>{count}</Text>
-                <Text style={styles.statLabel}>{PLURAL_LABELS[type] || `${TYPE_LABELS[type]}s`}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
       </ScrollView>
 
       <BottomNavBar />
@@ -348,6 +359,7 @@ export default function Calendar() {
         onDelete={handleDelete}
       />
     </ScreenContainer>
+    </SwipeableTabScreen>
   );
 }
 
@@ -504,26 +516,33 @@ const styles = StyleSheet.create({
   legendText: {
     ...typography.caption,
   },
-  statsGrid: {
+  festivalDot: {
+    position: 'absolute',
+    top: 1,
+    right: 3,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F5A524',
+  },
+  dayTextFestival: {
+    color: '#B45309',
+    fontWeight: '700',
+  },
+  festivalBanner: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  statTile: {
-    flexBasis: '47%',
-    flexGrow: 1,
     alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#FEF3C7',
     borderRadius: radius.md,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.md,
   },
-  statNumber: {
-    ...typography.h2,
-    marginTop: spacing.xs,
-  },
-  statLabel: {
-    ...typography.caption,
-    marginTop: 2,
+  festivalBannerText: {
+    ...typography.body,
+    fontWeight: '600',
+    color: '#92400E',
   },
   listWrap: {
     flex: 1,

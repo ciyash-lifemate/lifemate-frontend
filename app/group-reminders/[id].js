@@ -54,6 +54,13 @@ export default function GroupReminderDetail() {
   const [loading, setLoading] = useState(false);
   const [addingUpdate, setAddingUpdate] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(!isNew);
+  // Collapsed by default on an existing reminder - this screen is opened
+  // far more often just to post a progress update than to actually edit the
+  // title/date/time, so the editable form used to sit above the Updates
+  // thread taking up the whole screen even on that common path. A new
+  // reminder always needs the form though, since there's nothing to show
+  // until it's filled in.
+  const [detailsExpanded, setDetailsExpanded] = useState(isNew);
 
   const load = useCallback(async () => {
     if (isNew) return;
@@ -198,47 +205,52 @@ export default function GroupReminderDetail() {
           <MaterialCommunityIcons name={typeStyle.icon} size={36} color={typeStyle.color} />
         </View>
 
-        {isNew || canManage ? (
-          <TextField label="Title" placeholder="Follow up on invoice" value={title} onChangeText={setTitle} voiceInput editable={isNew || canManage} />
-        ) : (
-          <View style={styles.readOnlyField}>
-            <Text style={styles.readOnlyLabel}>Title</Text>
-            <Text style={styles.readOnlyValue}>{title}</Text>
-          </View>
-        )}
-
-        {isNew ? (
-          <TextField
-            label="Task (optional)"
-            placeholder="Details about this follow-up"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            style={styles.notesInput}
-            voiceInput
-          />
-        ) : description ? (
-          <View style={styles.readOnlyField}>
-            <Text style={styles.readOnlyLabel}>Task</Text>
-            <Text style={styles.readOnlyValue}>{description}</Text>
-          </View>
+        {!isNew && !canManage ? (
+          <>
+            <View style={styles.readOnlyField}>
+              <Text style={styles.readOnlyLabel}>Title</Text>
+              <Text style={styles.readOnlyValue}>{title}</Text>
+            </View>
+            {description ? (
+              <View style={styles.readOnlyField}>
+                <Text style={styles.readOnlyLabel}>Task</Text>
+                <Text style={styles.readOnlyValue}>{description}</Text>
+              </View>
+            ) : null}
+            <View style={styles.readOnlyField}>
+              <Text style={styles.readOnlyLabel}>When</Text>
+              <Text style={styles.readOnlyValue}>{date}{time ? ` · ${time}` : ''}</Text>
+            </View>
+          </>
         ) : null}
 
-        {isNew || canManage ? (
+        {!isNew && canManage ? (
+          <Pressable style={styles.detailsToggle} onPress={() => setDetailsExpanded((v) => !v)}>
+            <View style={styles.detailsToggleText}>
+              <Text style={styles.detailsToggleLabel}>Edit Details</Text>
+              <Text style={styles.detailsToggleWhen}>{date}{time ? ` · ${time}` : ''}</Text>
+            </View>
+            <Ionicons name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={colors.primary} />
+          </Pressable>
+        ) : null}
+
+        {isNew || (canManage && detailsExpanded) ? (
           <>
+            <TextField label="Title" placeholder="Follow up on invoice" value={title} onChangeText={setTitle} voiceInput />
+            <TextField
+              label="Task (optional)"
+              placeholder="Details about this follow-up"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              style={styles.notesInput}
+              voiceInput
+            />
             <DateField label="Date" value={date} onChange={setDate} mode="date" />
             <DateField label="Time" value={time} onChange={setTime} mode="time" />
             <SelectField label="Repeat" value={repeat} options={REPEAT_OPTIONS} onChange={setRepeat} />
+            <Button title={isNew ? 'Create Reminder' : 'Save Changes'} onPress={handleSave} loading={loading} style={styles.submit} />
           </>
-        ) : (
-          <View style={styles.readOnlyField}>
-            <Text style={styles.readOnlyLabel}>When</Text>
-            <Text style={styles.readOnlyValue}>{date}{time ? ` · ${time}` : ''}</Text>
-          </View>
-        )}
-
-        {isNew || canManage ? (
-          <Button title={isNew ? 'Create Reminder' : 'Save Changes'} onPress={handleSave} loading={loading} style={styles.submit} />
         ) : null}
 
         {!isNew ? (
@@ -314,6 +326,28 @@ const styles = StyleSheet.create({
   },
   readOnlyValue: {
     ...typography.body,
+  },
+  detailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+  },
+  detailsToggleText: {
+    flex: 1,
+  },
+  detailsToggleLabel: {
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  detailsToggleWhen: {
+    ...typography.caption,
+    marginTop: 2,
   },
   submit: {
     marginTop: spacing.md,

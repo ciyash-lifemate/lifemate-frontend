@@ -230,6 +230,11 @@ export const resyncLocalReminders = async (userId) => {
       } catch {
         delete map[key];
       }
+      // Persisted right away rather than batched after the whole loop - if
+      // the app gets killed mid-resync, an already-scheduled OS alarm whose
+      // id never made it to disk becomes untracked and un-cancellable, so a
+      // later resync schedules a second alarm alongside it and both fire.
+      await saveMap(map);
     }
 
     await Promise.all(

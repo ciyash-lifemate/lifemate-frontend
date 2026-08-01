@@ -7,11 +7,11 @@ import { colors, radius } from '../theme.js';
 
 const LEFT_TABS = [
   { key: 'home', path: '/home', icon: 'home-outline', iconActive: 'home', label: 'Home' },
-  { key: 'tasks', path: '/tasks', icon: 'checkbox-marked-outline', iconActive: 'checkbox-marked', label: 'Tasks' },
+  { key: 'calendar', path: '/calendar', icon: 'calendar-blank-outline', iconActive: 'calendar', label: 'Calendar' },
 ];
 
 const RIGHT_TABS = [
-  { key: 'calendar', path: '/calendar', icon: 'calendar-blank-outline', iconActive: 'calendar', label: 'Calendar' },
+  { key: 'companies', path: '/companies', icon: 'domain', iconActive: 'domain', label: 'Company' },
   { key: 'profile', path: '/profile', icon: 'account-outline', iconActive: 'account', label: 'Profile' },
 ];
 
